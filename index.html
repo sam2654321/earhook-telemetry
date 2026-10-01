@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IMU藍牙無線即時姿態與瞌睡警告監控系統</title>
+  <style>
+    :root {
+      --bg-color: #121826;
+      --card-bg: #1e293b;
+      --accent-color: #38bdf8;
+      --accent-red: #ef4444;
+      --accent-green: #10b981;
+      --text-main: #f8fafc;
+      --text-dim: #94a3b8;
+      --border-color: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    body { background-color: var(--bg-color); color: var(--text-main); padding: 16px; }
+    .container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+    
+    /* 頂部操作列 */
+    header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; background: var(--card-bg); padding: 16px 20px; border-radius: 12px; border: 1px solid var(--border-color); gap: 12px; }
+    .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+    button {
+      padding: 10px 18px; font-size: 14px; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-start { background-color: var(--accent-green); color: white; }
+    .btn-start:hover { background-color: #059669; }
+    .btn-stop { background-color: #f59e0b; color: white; }
+    .btn-export { background-color: var(--accent-color); color: #0f172a; }
+    .btn-export:hover { background-color: #0284c7; color: white; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status-badge { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-dim); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background-color: #64748b; }
+    .dot.active { background-color: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
+    .dot.alert { background-color: var(--accent-red); box-shadow: 0 0 10px var(--accent-red); animation: blink 0.8s infinite; }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* 主視覺區域 */
+    .dashboard-grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; }
+    @media (max-width: 850px) { .dashboard-grid { grid-template-columns: 1fr; } }
+    .card { background: var(--card-bg); border-radius: 12px; padding: 18px; border: 1px solid var(--border-color); display: flex; flex-direction: column; }
+    .card-title { font-size: 15px; font-weight: 600; color: var(--accent-color); margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 6px; }
+
+    /* 即時數據面板 */
+    .metrics-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+    .metric-box { background: rgba(15, 23, 42, 0.6); padding: 10px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
+    .metric-label { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+    .metric-value { font-size: 18px; font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
+    
+    /* 3D 繪圖區 */
+    .canvas-wrapper { position: relative; width: 100%; height: 320px; display: flex; justify-content: center; align-items: center; background: #0f172a; border-radius: 8px; overflow: hidden; }
+    canvas { width: 100%; height: 100%; }
+
+    /* 狀態警示橫幅 */
+    .alert-banner { display: none; padding: 10px; background: rgba(239, 68, 68, 0.2); border: 1px solid var(--accent-red); color: #fca5a5; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 12px; }
+    .alert-banner.show { display: block; }
+
+    /* 數據歷史表格 */
+    .table-wrapper { max-height: 200px; overflow-y: auto; margin-top: 6px; border-radius: 8px; border: 1px solid var(--border-color); }
+    table { width: 100%; border-collapse: collapse; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+    th, td { padding: 6px 10px; border-bottom: 1px solid var(--border-color); }
+    th { background: #0f172a; color: var(--text-dim); position: sticky; top: 0; }
+    tr:nth-child(even) { background: rgba(255, 255, 255, 0.02); }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div>
+      <h2 style="font-size: 18px; font-weight: 700;">耳掛式瞌睡警告無線監控系統</h2>
+      <p style="font-size: 12px; color: var(--text-dim); margin-top: 3px;">XIAO nRF52840 Sense (Web Bluetooth API 傳輸)</p>
+    </div>
+    <div class="btn-group">
+      <button id="btnConnect" class="btn-start" onclick="connectBLE()">配對藍牙耳掛</button>
+      <button id="btnDisconnect" class="btn-stop" onclick="disconnectBLE()" disabled>中斷連線</button>
+      <button id="btnExport" class="btn-export" onclick="exportCSV()">匯出數據 (CSV)</button>
+    </div>
+    <div class="status-badge">
+      <div id="statusDot" class="dot"></div>
+      <span id="statusText">等待藍牙連線</span>
+    </div>
+  </header>
+
+  <div id="alertBanner" class="alert-banner">⚠️ 警告：偵測到低頭瞌睡或姿態異常！</div>
+
+  <div class="dashboard-grid">
+    <div class="card">
+      <div class="card-title">三軸重力加速度 (Unit: g)</div>
+      <div class="metrics-container">
+        <div class="metric-box"><div class="metric-label">X 軸加速度</div><div class="metric-value" id="valAx">0.00</div></div>
+        <div class="metric-box"><div class="metric-label">Y 軸加速度</div><div class="metric-value" id="valAy">0.00</div></div>
+        <div class="metric-box"><div class="metric-label">Z 軸加速度</div><div class="metric-value" id="valAz">0.00</div></div>
+      </div>
+
+      <div class="card-title">推算姿態傾角 (Degrees)</div>
+      <div class="metrics-container">
+        <div class="metric-box"><div class="metric-label">側傾角 (X)</div><div class="metric-value" id="valDegX">0.0°</div></div>
+        <div class="metric-box"><div class="metric-label">橫擺角 (Y)</div><div class="metric-value" id="valDegY">0.0°</div></div>
+        <div class="metric-box"><div class="metric-label">俯仰角 (Z - 低頭)</div><div class="metric-value" id="valDegZ" style="color: #f87171;">0.0°</div></div>
+      </div>
+
+      <div class="card-title">即時通訊日誌 (最新 15 筆)</div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align: left;">時間戳</th>
+              <th>Ax(g)</th>
+              <th>Ay(g)</th>
+              <th>Az(g)</th>
+              <th>Pitch_Z(°)</th>
+              <th>狀態</th>
+            </tr>
+          </thead>
+          <tbody id="dataTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">45° 等角 3D 空間姿態圖 (紅色長箭頭代表駕駛人頭)</div>
+      <div class="canvas-wrapper">
+        <canvas id="glCanvas" width="600" height="400"></canvas>
+      </div>
+      <div style="margin-top: 10px; font-size: 12px; color: var(--text-dim); line-height: 1.5;">
+        <span style="color:#ef4444; font-weight:bold;">紅色長箭頭 (50px)</span>：代表頭部空間指向向量。<br>
+        立體安裝於右耳時，低頭動作直接反映於 Z 軸俯仰角與負向重力投影。
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Nordic UART Service UUIDs
+  const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+  const UART_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+  let bleDevice = null;
+  let txCharacteristic = null;
+  let recordedData = [];
+
+  // 即時物理量
+  let currentAx = 0, currentAy = 0, currentAz = 0;
+  let angleX = 0, angleY = 0, angleZ = 0;
+  let isAlertState = false;
+
+  const canvas = document.getElementById("glCanvas");
+  const ctx = canvas.getContext("2d");
+
+  window.addEventListener('load', () => {
+    draw3DView(0, 0, 0);
+  });
+
+  /* -------------------------------------------------------------
+     1. Web Bluetooth API 連線與資料監聽
+  ------------------------------------------------------------- */
+  async function connectBLE() {
+    if (!navigator.bluetooth) {
+      alert("您的瀏覽器不支援 Web Bluetooth API，請使用 Android Chrome 或電腦版 Chrome/Edge 開啟！");
+      return;
+    }
+
+    try {
+      // 請求配對藍牙裝置
+      bleDevice = await navigator.bluetooth.requestDevice({
+        filters: [{ namePrefix: 'EarHook' }],
+        optionalServices: [UART_SERVICE_UUID]
+      });
+
+      bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+      document.getElementById("statusText").innerText = "連線中...";
+      const server = await bleDevice.gatt.connect();
+      const service = await server.getPrimaryService(UART_SERVICE_UUID);
+      txCharacteristic = await service.getCharacteristic(UART_TX_CHAR_UUID);
+
+      // 監聽 Notify 封包
+      await txCharacteristic.startNotifications();
+      txCharacteristic.addEventListener('characteristicvaluechanged', handleBLEData);
+
+      document.getElementById("btnConnect").disabled = true;
+      document.getElementById("btnDisconnect").disabled = false;
+      document.getElementById("statusDot").className = "dot active";
+      document.getElementById("statusText").innerText = "已連線 (BLE 串流)";
+
+    } catch (err) {
+      console.error("BLE 連線失敗:", err);
+      alert("藍牙配對取消或連線失敗：" + err.message);
+      document.getElementById("statusText").innerText = "未連線";
+    }
+  }
+
+  function handleBLEData(event) {
+    const decoder = new TextDecoder('utf-8');
+    const rawString = decoder.decode(event.target.value);
+    parseIMULine(rawString.trim());
+  }
+
+  function onDisconnected() {
+    document.getElementById("btnConnect").disabled = false;
+    document.getElementById("btnDisconnect").disabled = true;
+    document.getElementById("statusDot").className = "dot";
+    document.getElementById("statusText").innerText = "已中斷連線";
+    document.getElementById("alertBanner").className = "alert-banner";
+  }
+
+  function disconnectBLE() {
+    if (bleDevice && bleDevice.gatt.connected) {
+      bleDevice.gatt.disconnect();
+    }
+  }
+
+  /* -------------------------------------------------------------
+     2. 數據正則解析與介面動態刷新
+  ------------------------------------------------------------- */
+  function parseIMULine(line) {
+    // 匹配: Acc(g) [X: +0.02, Y: -0.15, Z: +0.98] | Deg [Y: -8.6, Z: +80.2] -> [NORMAL / ALERT]
+    const regex = /Acc\(g\)\s*\[X:\s*([+-]?\d+\.?\d*),\s*Y:\s*([+-]?\d+\.?\d*),\s*Z:\s*([+-]?\d+\.?\d*)\]\s*\|\s*Deg\s*\[Y:\s*([+-]?\d+\.?\d*),\s*Z:\s*([+-]?\d+\.?\d*)\](?:\s*->\s*\[(.*?)\])?/;
+    const match = line.match(regex);
+
+    if (match) {
+      currentAx = parseFloat(match[1]);
+      currentAy = parseFloat(match[2]);
+      currentAz = parseFloat(match[3]);
+      angleY = parseFloat(match[4]);
+      angleZ = parseFloat(match[5]);
+      // 側傾角 X (輔助計算)
+      angleX = Math.atan2(currentAx, Math.sqrt(currentAy * currentAy + currentAz * currentAz)) * (180 / Math.PI);
+
+      const alertTag = match[6] || "";
+      isAlertState = alertTag.includes("ALERT");
+
+      // 儀表盤數值更新
+      document.getElementById("valAx").innerText = (currentAx >= 0 ? "+" : "") + currentAx.toFixed(2);
+      document.getElementById("valAy").innerText = (currentAy >= 0 ? "+" : "") + currentAy.toFixed(2);
+      document.getElementById("valAz").innerText = (currentAz >= 0 ? "+" : "") + currentAz.toFixed(2);
+
+      document.getElementById("valDegX").innerText = angleX.toFixed(1) + "°";
+      document.getElementById("valDegY").innerText = angleY.toFixed(1) + "°";
+      document.getElementById("valDegZ").innerText = angleZ.toFixed(1) + "°";
+
+      // 警示狀態指示
+      const banner = document.getElementById("alertBanner");
+      const dot = document.getElementById("statusDot");
+      if (isAlertState) {
+        banner.className = "alert-banner show";
+        dot.className = "dot alert";
+      } else {
+        banner.className = "alert-banner";
+        dot.className = "dot active";
+      }
+
+      // 更新 3D 姿態視圖 (Pitch 採 angleZ)
+      draw3DView(angleX, angleZ, angleY);
+
+      // 新增紀錄
+      collectSample(alertTag);
+    }
+  }
+
+  function collectSample(stateText) {
+    const timestamp = new Date().toISOString().substring(11, 23);
+    const record = {
+      time: timestamp,
+      ax: currentAx,
+      ay: currentAy,
+      az: currentAz,
+      pitchZ: angleZ.toFixed(2),
+      state: stateText || (isAlertState ? "ALERT" : "NORMAL")
+    };
+    recordedData.push(record);
+
+    const tbody = document.getElementById("dataTableBody");
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td style="text-align:left;">${record.time}</td>
+      <td>${record.ax.toFixed(2)}</td>
+      <td>${record.ay.toFixed(2)}</td>
+      <td>${record.az.toFixed(2)}</td>
+      <td style="color:${isAlertState ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.pitchZ}°</td>
+      <td style="color:${isAlertState ? '#ef4444' : '#10b981'}; font-weight:bold;">${record.state}</td>
+    `;
+    tbody.insertBefore(tr, tbody.firstChild);
+    while (tbody.children.length > 15) {
+      tbody.removeChild(tbody.lastChild);
+    }
+  }
+
+  /* -------------------------------------------------------------
+     3. 45 度三維等角投影繪製 (50px 朝向長箭頭)
+  ------------------------------------------------------------- */
+  function draw3DView(pitchDegX, pitchDegZ, rollDegY) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const originX = canvas.width / 2;
+    const originY = canvas.height / 2 + 25;
+
+    function project3D(x, y, z) {
+      const cos30 = Math.cos(Math.PI / 6);
+      const sin30 = Math.sin(Math.PI / 6);
+      return {
+        px: originX + (x * cos30 - z * cos30),
+        py: originY - (y - (x * sin30 + z * sin30))
+      };
+    }
+
+    // 繪製座標底軸
+    const axisLen = 110;
+    const axes = [
+      { name: "X (側向)", x: axisLen, y: 0, z: 0, color: "#64748b" },
+      { name: "Y (垂直)", x: 0, y: axisLen, z: 0, color: "#38bdf8" },
+      { name: "Z (朝前/俯仰)", x: 0, y: 0, z: axisLen, color: "#64748b" }
+    ];
+
+    axes.forEach(axis => {
+      const p = project3D(axis.x, axis.y, axis.z);
+      ctx.beginPath();
+      ctx.moveTo(originX, originY);
+      ctx.lineTo(p.px, p.py);
+      ctx.strokeStyle = axis.color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = axis.color;
+      ctx.font = "11px sans-serif";
+      ctx.fillText(axis.name, p.px + 5, p.py + 4);
+    });
+
+    // 向量旋轉變換 (以長度 50px 向量代表頭部指向)
+    const L = 50; 
+    let radZ = (pitchDegZ * Math.PI) / 180;
+    let radX = (pitchDegX * Math.PI) / 180;
+
+    let vx = L * Math.sin(radX);
+    let vy = L * Math.sin(radZ);
+    let vz = L * Math.cos(radZ) * Math.cos(radX);
+
+    const headTarget = project3D(vx, vy, vz);
+
+    // 繪製人頭指向向量長箭頭
+    ctx.beginPath();
+    ctx.moveTo(originX, originY);
+    ctx.lineTo(headTarget.px, headTarget.py);
+    ctx.strokeStyle = isAlertState ? "#ef4444" : "#38bdf8";
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.stroke();
+
+    const headLen = 10;
+    const arrowAngle = Math.atan2(headTarget.py - originY, headTarget.px - originX);
+    ctx.beginPath();
+    ctx.moveTo(headTarget.px, headTarget.py);
+    ctx.lineTo(
+      headTarget.px - headLen * Math.cos(arrowAngle - Math.PI / 6),
+      headTarget.py - headLen * Math.sin(arrowAngle - Math.PI / 6)
+    );
+    ctx.lineTo(
+      headTarget.px - headLen * Math.cos(arrowAngle + Math.PI / 6),
+      headTarget.py - headLen * Math.sin(arrowAngle + Math.PI / 6)
+    );
+    ctx.closePath();
+    ctx.fillStyle = isAlertState ? "#ef4444" : "#38bdf8";
+    ctx.fill();
+  }
+
+  /* -------------------------------------------------------------
+     4. CSV 遙測數據匯出
+  ------------------------------------------------------------- */
+  function exportCSV() {
+    if (recordedData.length === 0) {
+      alert("目前尚無收集到的數據可供匯出！");
+      return;
+    }
+
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
+    csvContent += "Time,Acc_X(g),Acc_Y(g),Acc_Z(g),Pitch_Z(deg),State\n";
+
+    recordedData.forEach(row => {
+      csvContent += `${row.time},${row.ax},${row.ay},${row.az},${row.pitchZ},${row.state}\n`;
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `EarHook_BLE_Telemetry_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+</script>
+</body>
+</html>
