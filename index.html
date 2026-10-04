@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>多應用情境智慧型穿戴式瞌睡警報系統</title>
   <style>
     :root {
@@ -17,46 +17,79 @@
       --border-color: #334155;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-    body { background-color: var(--bg-color); color: var(--text-main); padding: 16px; }
-    .container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+    body { background-color: var(--bg-color); color: var(--text-main); padding: 12px; }
+    .container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
     
-    header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; background: var(--card-bg); padding: 16px 20px; border-radius: 12px; border: 1px solid var(--border-color); gap: 12px; }
-    .btn-group { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    button { padding: 10px 18px; font-size: 14px; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s; }
+    /* 頂部操作列 */
+    header {
+      background: var(--card-bg);
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .header-title-box { display: flex; justify-content: space-between; align-items: center; }
+    .header-title-box h2 { font-size: 16px; font-weight: 700; color: var(--text-main); }
+    .header-title-box p { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+    .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+    button {
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
     .btn-start { background-color: var(--accent-green); color: white; }
-    .btn-start:hover { background-color: #059669; }
     .btn-stop { background-color: #f59e0b; color: white; }
     .btn-export { background-color: var(--accent-color); color: #0f172a; }
-    .btn-export:hover { background-color: #0284c7; color: white; }
     .btn-mode { background-color: #475569; color: white; border: 1px solid var(--border-color); }
     .btn-mode.driving { background-color: #dc2626; color: white; }
     .btn-mode.indoor { background-color: #0284c7; color: white; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    
-    .status-badge { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-dim); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-dim);
+      background: rgba(15, 23, 42, 0.5);
+      padding: 6px 12px;
+      border-radius: 6px;
+      align-self: flex-start;
+    }
     .dot { width: 10px; height: 10px; border-radius: 50%; background-color: #64748b; }
     .dot.active { background-color: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
     .dot.alert { background-color: var(--accent-red); box-shadow: 0 0 10px var(--accent-red); animation: blink 0.8s infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-    /* 螢幕正中央前景警告框 (60% 寬度、粗體亮紅帶框、穿透點擊) */
+    /* 螢幕正中央前景警告框 (60% 寬度、粗體亮紅帶框、點擊穿透) */
     .screen-alert-overlay {
       position: fixed;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 60vw;
-      max-width: 500px;
-      padding: 24px 10px;
+      width: 65vw;
+      max-width: 480px;
+      padding: 22px 10px;
       border: 4px solid var(--bright-red);
-      background-color: rgba(18, 24, 38, 0.92);
+      background-color: rgba(18, 24, 38, 0.94);
       color: var(--bright-red);
-      font-size: clamp(28px, 6vw, 54px);
+      font-size: clamp(30px, 8vw, 56px);
       font-weight: 900;
       letter-spacing: 4px;
       text-align: center;
       border-radius: 16px;
-      box-shadow: 0 0 35px rgba(255, 0, 51, 0.7), inset 0 0 20px rgba(255, 0, 51, 0.4);
+      box-shadow: 0 0 35px rgba(255, 0, 51, 0.75), inset 0 0 20px rgba(255, 0, 51, 0.4);
       z-index: 9999;
       pointer-events: none;
       display: none;
@@ -68,39 +101,91 @@
       to { opacity: 1.0; transform: translate(-50%, -50%) scale(1.02); }
     }
 
-    .dashboard-grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; }
-    @media (max-width: 850px) { .dashboard-grid { grid-template-columns: 1fr; } }
-    .card { background: var(--card-bg); border-radius: 12px; padding: 18px; border: 1px solid var(--border-color); display: flex; flex-direction: column; }
-    .card-title { font-size: 15px; font-weight: 600; color: var(--accent-color); margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 6px; }
-
-    .metrics-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
-    .metric-box { background: rgba(15, 23, 42, 0.6); padding: 10px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
-    .metric-label { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
-    .metric-value { font-size: 18px; font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
-    
-    .canvas-wrapper { position: relative; width: 100%; height: 320px; display: flex; justify-content: center; align-items: center; background: #0f172a; border-radius: 8px; overflow: hidden; }
-    canvas { width: 100%; height: 100%; }
-
-    .alert-banner { display: none; padding: 10px; background: rgba(239, 68, 68, 0.2); border: 1px solid var(--accent-red); color: #fca5a5; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 12px; }
+    .alert-banner {
+      display: none;
+      padding: 10px;
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid var(--accent-red);
+      color: #fca5a5;
+      border-radius: 8px;
+      text-align: center;
+      font-weight: bold;
+      font-size: 13px;
+    }
     .alert-banner.show { display: block; }
 
-    .table-wrapper { max-height: 200px; overflow-y: auto; margin-top: 6px; border-radius: 8px; border: 1px solid var(--border-color); }
-    table { width: 100%; border-collapse: collapse; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
-    th, td { padding: 6px 10px; border-bottom: 1px solid var(--border-color); }
+    /* 卡片與網格預設（手機優先） */
+    .dashboard-grid { display: flex; flex-direction: column; gap: 14px; }
+    .card { background: var(--card-bg); border-radius: 12px; padding: 14px; border: 1px solid var(--border-color); }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent-color);
+      margin-bottom: 10px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 5px;
+    }
+
+    .metrics-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+    .metric-box { background: rgba(15, 23, 42, 0.6); padding: 8px 4px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
+    .metric-label { font-size: 11px; color: var(--text-dim); margin-bottom: 3px; }
+    .metric-value { font-size: 16px; font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
+    
+    .canvas-wrapper {
+      position: relative;
+      width: 100%;
+      height: 280px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #0f172a;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    canvas { width: 100%; height: 100%; }
+
+    .table-wrapper { max-height: 180px; overflow-y: auto; margin-top: 6px; border-radius: 8px; border: 1px solid var(--border-color); }
+    table { width: 100%; border-collapse: collapse; text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid var(--border-color); }
     th { background: #0f172a; color: var(--text-dim); position: sticky; top: 0; }
     tr:nth-child(even) { background: rgba(255, 255, 255, 0.02); }
+
+    /* 手機專屬版面調整 (< 800px) */
+    @media (max-width: 800px) {
+      .card-3d { order: -1; } /* 3D 圖優先置頂，方便手機即時握持展示 */
+      .canvas-wrapper { height: 260px; }
+    }
+
+    /* PC 寬螢幕專屬版面調整 (>= 801px) */
+    @media (min-width: 801px) {
+      body { padding: 20px; }
+      header { flex-direction: row; justify-content: space-between; align-items: center; }
+      .btn-group { display: flex; width: auto; }
+      .dashboard-grid { display: grid; grid-template-columns: 1fr 1.15fr; gap: 16px; }
+      .card-3d { order: unset; }
+      .canvas-wrapper { height: 360px; }
+      .metrics-container { gap: 12px; }
+      .metric-box { padding: 10px; }
+      .metric-value { font-size: 18px; }
+      .header-title-box h2 { font-size: 18px; }
+    }
   </style>
 </head>
 <body>
 
-<!-- 螢幕正中央 60% 粗體 ALERT 警告框 -->
 <div id="screenAlert" class="screen-alert-overlay">ALERT</div>
 
 <div class="container">
   <header>
-    <div>
-      <h2 style="font-size: 18px; font-weight: 700;">多應用情境智慧型穿戴式瞌睡警報系統</h2>
-      <p style="font-size: 12px; color: var(--text-dim); margin-top: 3px;">XIAO nRF52840 Sense (MCU 端點直接推論架構)</p>
+    <div class="header-title-box">
+      <div>
+        <h2>多應用情境穿戴式瞌睡警報系統</h2>
+        <p>XIAO nRF52840 Sense (MCU 端點直接推論架構)</p>
+      </div>
+      <div class="status-badge">
+        <div id="statusDot" class="dot"></div>
+        <span id="statusText">未連線</span>
+      </div>
     </div>
     <div class="btn-group">
       <button id="btnConnect" class="btn-start" onclick="connectBLE()">配對藍牙耳掛</button>
@@ -108,28 +193,36 @@
       <button id="btnMode" class="btn-mode driving" onclick="toggleMode()">模式：行車 (警報音開)</button>
       <button id="btnExport" class="btn-export" onclick="exportCSV()">匯出數據 (CSV)</button>
     </div>
-    <div class="status-badge">
-      <div id="statusDot" class="dot"></div>
-      <span id="statusText">等待藍牙連線</span>
-    </div>
   </header>
 
   <div id="alertBanner" class="alert-banner">⚠️ 警告：偵測到低頭瞌睡或姿態異常！</div>
 
   <div class="dashboard-grid">
+    <!-- 3D 姿態儀表卡片 (手機端自動 order: -1 置頂) -->
+    <div class="card card-3d">
+      <div class="card-title">30° 正等角 3D 姿態圖 (長箭頭代表頭部指向)</div>
+      <div class="canvas-wrapper">
+        <canvas id="glCanvas" width="600" height="400"></canvas>
+      </div>
+      <div style="margin-top: 8px; font-size: 11px; color: var(--text-dim); line-height: 1.4;">
+        <span style="color:#ff0000; font-weight:bold;">紅色長箭頭</span>：代表頭部空間指向向量。低頭或偏斜即時投影同步反應[cite: 1, 4]。
+      </div>
+    </div>
+
+    <!-- 數據指標與通訊日誌卡片 -->
     <div class="card">
+      <div class="card-title">MCU 邊緣解算姿態傾角 (Degrees)</div>
+      <div class="metrics-container">
+        <div class="metric-box"><div class="metric-label">側傾角 (X)</div><div class="metric-value" id="valDegX">0.0°</div></div>
+        <div class="metric-box"><div class="metric-label">橫擺角 (Y)</div><div class="metric-value" id="valDegY">0.0°</div></div>
+        <div class="metric-box"><div class="metric-label">俯仰角 (Z-低頭)</div><div class="metric-value" id="valDegZ" style="color: #f87171;">0.0°</div></div>
+      </div>
+
       <div class="card-title">三軸重力加速度 (Unit: g)</div>
       <div class="metrics-container">
         <div class="metric-box"><div class="metric-label">X 軸加速度</div><div class="metric-value" id="valAx">0.00</div></div>
         <div class="metric-box"><div class="metric-label">Y 軸加速度</div><div class="metric-value" id="valAy">0.00</div></div>
         <div class="metric-box"><div class="metric-label">Z 軸加速度</div><div class="metric-value" id="valAz">0.00</div></div>
-      </div>
-
-      <div class="card-title">MCU 邊緣解算姿態傾角 (Degrees)</div>
-      <div class="metrics-container">
-        <div class="metric-box"><div class="metric-label">側傾角 (X)</div><div class="metric-value" id="valDegX">0.0°</div></div>
-        <div class="metric-box"><div class="metric-label">橫擺角 (Y)</div><div class="metric-value" id="valDegY">0.0°</div></div>
-        <div class="metric-box"><div class="metric-label">俯仰角 (Z - 低頭)</div><div class="metric-value" id="valDegZ" style="color: #f87171;">0.0°</div></div>
       </div>
 
       <div class="card-title">即時通訊日誌 (最新 15 筆)</div>
@@ -138,10 +231,10 @@
           <thead>
             <tr>
               <th style="text-align: left;">時間戳</th>
-              <th>Ax(g)</th>
-              <th>Ay(g)</th>
-              <th>Az(g)</th>
-              <th>Pitch_Z(°)</th>
+              <th>Ax</th>
+              <th>Ay</th>
+              <th>Az</th>
+              <th>Pitch_Z</th>
               <th>狀態</th>
             </tr>
           </thead>
@@ -149,22 +242,10 @@
         </table>
       </div>
     </div>
-
-    <div class="card">
-      <div class="card-title">30° 等角 3D 空間姿態圖 (紅色長箭頭代表頭部指向)</div>
-      <div class="canvas-wrapper">
-        <canvas id="glCanvas" width="600" height="400"></canvas>
-      </div>
-      <div style="margin-top: 10px; font-size: 12px; color: var(--text-dim); line-height: 1.5;">
-        <span style="color:#ff0000; font-weight:bold;">紅色長箭頭</span>：代表頭部空間指向向量。<br>
-        直接由 MCU 計算並回傳完整三軸姿態角，低頭動作同步反映於 Z 軸俯仰角。
-      </div>
-    </div>
   </div>
 </div>
 
 <script>
-  // Nordic UART Service (NUS) UUID
   const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
   const UART_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
@@ -176,12 +257,10 @@
   let angleX = 0, angleY = 0, angleZ = 0;
   let isAlertState = false;
 
-  // 模式控制：true = 行車模式 (發聲), false = 室內模式 (靜音)
   let isDrivingMode = true;
-
-  // Web Audio API 警報音合成器
   let audioCtx = null;
   let alertHideTimeout = null;
+  let isSoundPlaying = false;
 
   const canvas = document.getElementById("glCanvas");
   const ctx = canvas.getContext("2d");
@@ -202,8 +281,9 @@
     }
   }
 
+  // 1 秒以上急促緊急警報長音 (雙頻調變，不衰減音量)
   function playAlertBeep() {
-    if (!isDrivingMode) return; // 室內模式不發聲
+    if (!isDrivingMode || isSoundPlaying) return;
     try {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -211,29 +291,49 @@
       if (audioCtx.state === 'suspended') {
         audioCtx.resume();
       }
+
+      isSoundPlaying = true;
+      const startTime = audioCtx.currentTime;
+      const duration = 1.2; // 響鳴 1.2 秒長音
+
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-      osc.type = "square";
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime); // 880Hz A5音
-      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+
+      osc.type = "sawtooth"; // 鋸齒波，具備高諧波穿透力
+
+      // 雙階頻率在 880Hz 與 1200Hz 快速交替脈衝
+      for (let t = 0; t < duration; t += 0.2) {
+        osc.frequency.setValueAtTime(880, startTime + t);
+        osc.frequency.setValueAtTime(1200, startTime + t + 0.1);
+      }
+
+      // 音量維持飽和，直到最後 0.1 秒才結束
+      gain.gain.setValueAtTime(0.6, startTime);
+      gain.gain.setValueAtTime(0.6, startTime + duration - 0.1);
+      gain.gain.linearRampToValueAtTime(0.01, startTime + duration);
+
       osc.connect(gain);
       gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.35);
+
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+
+      osc.onended = () => {
+        isSoundPlaying = false;
+      };
     } catch (e) {
       console.warn("音訊播放受阻:", e);
+      isSoundPlaying = false;
     }
   }
 
   async function connectBLE() {
     if (!navigator.bluetooth) {
-      alert("您的瀏覽器不支援 Web Bluetooth API，請使用 Android Chrome、電腦 Chrome/Edge 或 iOS Bluefy 開啟！");
+      alert("您的瀏覽器不支援 Web Bluetooth API，請使用 Android Chrome、電腦版 Chrome/Edge 或 iOS Bluefy 開啟！");
       return;
     }
 
     try {
-      // 確保使用者互動時啟動 AudioContext
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       }
@@ -256,7 +356,7 @@
       document.getElementById("btnConnect").disabled = true;
       document.getElementById("btnDisconnect").disabled = false;
       document.getElementById("statusDot").className = "dot active";
-      document.getElementById("statusText").innerText = "已連線 (BLE 串流)";
+      document.getElementById("statusText").innerText = "已連線 (BLE)";
 
     } catch (err) {
       console.error("BLE 連線失敗:", err);
@@ -295,6 +395,7 @@
       clearTimeout(alertHideTimeout);
     }
 
+    // 警告框持續顯示 2 秒
     alertHideTimeout = setTimeout(() => {
       alertEl.classList.remove("show");
       alertHideTimeout = null;
@@ -383,7 +484,7 @@
     const originX = canvas.width / 2;
     const originY = canvas.height / 2 + 25;
 
-    // 標準 30 度等角投影公式
+    // 30 度正等角投影運算
     function project3D(x, y, z) {
       const cos30 = Math.cos(Math.PI / 6);
       const sin30 = Math.sin(Math.PI / 6);
