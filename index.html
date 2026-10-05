@@ -20,7 +20,6 @@
     body { background-color: var(--bg-color); color: var(--text-main); padding: 12px; }
     .container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
     
-    /* 頂部操作列 */
     header {
       background: var(--card-bg);
       padding: 14px 16px;
@@ -49,12 +48,9 @@
       text-align: center;
     }
     .btn-start { background-color: var(--accent-green); color: white; }
-    .btn-start:hover { background-color: #059669; }
     .btn-stop { background-color: #f59e0b; color: white; }
     .btn-export { background-color: var(--accent-color); color: #0f172a; }
-    .btn-export:hover { background-color: #0284c7; color: white; }
-    .btn-mode { background-color: #475569; color: white; border: 1px solid var(--border-color); }
-    .btn-mode.driving { background-color: #dc2626; color: white; }
+    .btn-mode { background-color: #dc2626; color: white; border: 1px solid var(--border-color); }
     .btn-mode.indoor { background-color: #0284c7; color: white; }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -74,7 +70,6 @@
     .dot.alert { background-color: var(--accent-red); box-shadow: 0 0 10px var(--accent-red); animation: blink 0.8s infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-    /* 螢幕正中央前景警告框 (65% 寬度、粗體亮紅帶框、點擊穿透) */
     .screen-alert-overlay {
       position: fixed;
       top: 50%;
@@ -116,7 +111,6 @@
     }
     .alert-banner.show { display: block; }
 
-    /* 卡片與網格預設（手機優先） */
     .dashboard-grid { display: flex; flex-direction: column; gap: 14px; }
     .card { background: var(--card-bg); border-radius: 12px; padding: 14px; border: 1px solid var(--border-color); }
     .card-title {
@@ -152,13 +146,11 @@
     th { background: #0f172a; color: var(--text-dim); position: sticky; top: 0; }
     tr:nth-child(even) { background: rgba(255, 255, 255, 0.02); }
 
-    /* 手機專屬版面調整 (< 800px) */
     @media (max-width: 800px) {
-      .card-3d { order: -1; } /* 3D 圖優先置頂，方便手機握持展示 */
+      .card-3d { order: -1; }
       .canvas-wrapper { height: 260px; }
     }
 
-    /* PC 寬螢幕專屬版面調整 (>= 801px) */
     @media (min-width: 801px) {
       body { padding: 20px; }
       header { flex-direction: row; justify-content: space-between; align-items: center; }
@@ -192,7 +184,7 @@
     <div class="btn-group">
       <button id="btnConnect" class="btn-start" onclick="connectBLE()">配對藍牙耳掛</button>
       <button id="btnDisconnect" class="btn-stop" onclick="disconnectBLE()" disabled>中斷連線</button>
-      <button id="btnMode" class="btn-mode driving" onclick="toggleMode()">模式：行車 (警報音開)</button>
+      <button id="btnMode" class="btn-mode" onclick="toggleMode()">模式：行車 (警報音開)</button>
       <button id="btnExport" class="btn-export" onclick="exportCSV()">匯出數據 (CSV)</button>
     </div>
   </header>
@@ -200,18 +192,16 @@
   <div id="alertBanner" class="alert-banner">⚠️ 警告：偵測到低頭瞌睡或姿態異常！</div>
 
   <div class="dashboard-grid">
-    <!-- 3D 姿態儀表卡片 (手機端自動 order: -1 置頂) -->
     <div class="card card-3d">
       <div class="card-title">30° 正等角 3D 姿態圖 (長箭頭代表頭部指向)</div>
       <div class="canvas-wrapper">
         <canvas id="glCanvas" width="600" height="400"></canvas>
       </div>
       <div style="margin-top: 8px; font-size: 11px; color: var(--text-dim); line-height: 1.4;">
-        <span style="color:#ff0000; font-weight:bold;">紅色長箭頭</span>：代表頭部空間指向向量。低頭或偏斜即時投影同步反應[cite: 1, 4]。
+        <span style="color:#ff0000; font-weight:bold;">紅色長箭頭</span>：代表頭部空間指向向量。即時反映俯仰角與異常下墜[cite: 1, 4]。
       </div>
     </div>
 
-    <!-- 數據指標與通訊日誌卡片 -->
     <div class="card">
       <div class="card-title">MCU 邊緣解算姿態傾角 (Degrees)</div>
       <div class="metrics-container">
@@ -249,10 +239,12 @@
 
 <script>
   const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-  const UART_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+  const UART_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // MCU 通知
+  const UART_RX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // 寫入 MCU
 
   let bleDevice = null;
   let txCharacteristic = null;
+  let rxCharacteristic = null;
   let recordedData = [];
 
   let currentAx = 0, currentAy = 0, currentAz = 0;
@@ -264,7 +256,6 @@
   let alertHideTimeout = null;
   let isSoundPlaying = false;
 
-  // 封包暫存緩衝區（徹底解決 BLE 20-byte MTU 拆包導致正規表達式失效問題）
   let bleRxBuffer = "";
 
   const canvas = document.getElementById("glCanvas");
@@ -274,19 +265,32 @@
     draw3DView(0, 0, 0);
   });
 
-  function toggleMode() {
+  // 切換模式並透過 BLE 下發指令指揮 MCU
+  async function toggleMode() {
     isDrivingMode = !isDrivingMode;
     const btn = document.getElementById("btnMode");
+    const cmd = isDrivingMode ? "MODE:DRIVE" : "MODE:INDOOR";
+
     if (isDrivingMode) {
-      btn.className = "btn-mode driving";
+      btn.className = "btn-mode";
       btn.innerText = "模式：行車 (警報音開)";
     } else {
       btn.className = "btn-mode indoor";
       btn.innerText = "模式：室內 (靜音)";
     }
+
+    // 發送給 MCU
+    if (rxCharacteristic) {
+      try {
+        const encoder = new TextEncoder();
+        await rxCharacteristic.writeValue(encoder.encode(cmd));
+        console.log("指令發送成功 -> MCU:", cmd);
+      } catch (e) {
+        console.error("發送指令失敗:", e);
+      }
+    }
   }
 
-  // 1.2 秒雙階緊急蜂鳴警報 (880Hz / 1200Hz 快速交替脈衝)
   function playAlertBeep() {
     if (!isDrivingMode || isSoundPlaying) return;
     try {
@@ -351,7 +355,9 @@
       document.getElementById("statusText").innerText = "連線中...";
       const server = await bleDevice.gatt.connect();
       const service = await server.getPrimaryService(UART_SERVICE_UUID);
+
       txCharacteristic = await service.getCharacteristic(UART_TX_CHAR_UUID);
+      rxCharacteristic = await service.getCharacteristic(UART_RX_CHAR_UUID);
 
       await txCharacteristic.startNotifications();
       txCharacteristic.addEventListener('characteristicvaluechanged', handleBLEData);
@@ -361,6 +367,11 @@
       document.getElementById("statusDot").className = "dot active";
       document.getElementById("statusText").innerText = "已連線 (BLE)";
 
+      // 連線成功後同步目前模式給 MCU
+      const cmd = isDrivingMode ? "MODE:DRIVE" : "MODE:INDOOR";
+      const encoder = new TextEncoder();
+      await rxCharacteristic.writeValue(encoder.encode(cmd));
+
     } catch (err) {
       console.error("BLE 連線失敗:", err);
       alert("藍牙配對取消或連線失敗：" + err.message);
@@ -368,7 +379,6 @@
     }
   }
 
-  // 接收 BLE 數據並組裝完整行
   function handleBLEData(event) {
     const decoder = new TextDecoder('utf-8');
     const chunk = decoder.decode(event.target.value);
@@ -392,6 +402,7 @@
     document.getElementById("alertBanner").className = "alert-banner";
     hideCenterAlert();
     bleRxBuffer = "";
+    rxCharacteristic = null;
   }
 
   function disconnectBLE() {
