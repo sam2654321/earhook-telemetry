@@ -49,8 +49,10 @@
       text-align: center;
     }
     .btn-start { background-color: var(--accent-green); color: white; }
+    .btn-start:hover { background-color: #059669; }
     .btn-stop { background-color: #f59e0b; color: white; }
     .btn-export { background-color: var(--accent-color); color: #0f172a; }
+    .btn-export:hover { background-color: #0284c7; color: white; }
     .btn-mode { background-color: #475569; color: white; border: 1px solid var(--border-color); }
     .btn-mode.driving { background-color: #dc2626; color: white; }
     .btn-mode.indoor { background-color: #0284c7; color: white; }
@@ -72,7 +74,7 @@
     .dot.alert { background-color: var(--accent-red); box-shadow: 0 0 10px var(--accent-red); animation: blink 0.8s infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-    /* 螢幕正中央前景警告框 (60% 寬度、粗體亮紅帶框、點擊穿透) */
+    /* 螢幕正中央前景警告框 (65% 寬度、粗體亮紅帶框、點擊穿透) */
     .screen-alert-overlay {
       position: fixed;
       top: 50%;
@@ -152,7 +154,7 @@
 
     /* 手機專屬版面調整 (< 800px) */
     @media (max-width: 800px) {
-      .card-3d { order: -1; } /* 3D 圖優先置頂，方便手機即時握持展示 */
+      .card-3d { order: -1; } /* 3D 圖優先置頂，方便手機握持展示 */
       .canvas-wrapper { height: 260px; }
     }
 
@@ -262,6 +264,9 @@
   let alertHideTimeout = null;
   let isSoundPlaying = false;
 
+  // 封包暫存緩衝區（徹底解決 BLE 20-byte MTU 拆包導致正規表達式失效問題）
+  let bleRxBuffer = "";
+
   const canvas = document.getElementById("glCanvas");
   const ctx = canvas.getContext("2d");
 
@@ -281,7 +286,7 @@
     }
   }
 
-  // 1 秒以上急促緊急警報長音 (雙頻調變，不衰減音量)
+  // 1.2 秒雙階緊急蜂鳴警報 (880Hz / 1200Hz 快速交替脈衝)
   function playAlertBeep() {
     if (!isDrivingMode || isSoundPlaying) return;
     try {
@@ -294,20 +299,18 @@
 
       isSoundPlaying = true;
       const startTime = audioCtx.currentTime;
-      const duration = 1.2; // 響鳴 1.2 秒長音
+      const duration = 1.2;
 
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
 
-      osc.type = "sawtooth"; // 鋸齒波，具備高諧波穿透力
+      osc.type = "sawtooth";
 
-      // 雙階頻率在 880Hz 與 1200Hz 快速交替脈衝
       for (let t = 0; t < duration; t += 0.2) {
         osc.frequency.setValueAtTime(880, startTime + t);
         osc.frequency.setValueAtTime(1200, startTime + t + 0.1);
       }
 
-      // 音量維持飽和，直到最後 0.1 秒才結束
       gain.gain.setValueAtTime(0.6, startTime);
       gain.gain.setValueAtTime(0.6, startTime + duration - 0.1);
       gain.gain.linearRampToValueAtTime(0.01, startTime + duration);
@@ -365,10 +368,20 @@
     }
   }
 
+  // 接收 BLE 數據並組裝完整行
   function handleBLEData(event) {
     const decoder = new TextDecoder('utf-8');
-    const rawString = decoder.decode(event.target.value);
-    parseIMULine(rawString.trim());
+    const chunk = decoder.decode(event.target.value);
+    bleRxBuffer += chunk;
+
+    let newlineIndex;
+    while ((newlineIndex = bleRxBuffer.indexOf('\n')) !== -1) {
+      const line = bleRxBuffer.substring(0, newlineIndex).trim();
+      bleRxBuffer = bleRxBuffer.substring(newlineIndex + 1);
+      if (line.length > 0) {
+        parseIMULine(line);
+      }
+    }
   }
 
   function onDisconnected() {
@@ -378,6 +391,7 @@
     document.getElementById("statusText").innerText = "已中斷連線";
     document.getElementById("alertBanner").className = "alert-banner";
     hideCenterAlert();
+    bleRxBuffer = "";
   }
 
   function disconnectBLE() {
@@ -395,7 +409,6 @@
       clearTimeout(alertHideTimeout);
     }
 
-    // 警告框持續顯示 2 秒
     alertHideTimeout = setTimeout(() => {
       alertEl.classList.remove("show");
       alertHideTimeout = null;
@@ -484,7 +497,6 @@
     const originX = canvas.width / 2;
     const originY = canvas.height / 2 + 25;
 
-    // 30 度正等角投影運算
     function project3D(x, y, z) {
       const cos30 = Math.cos(Math.PI / 6);
       const sin30 = Math.sin(Math.PI / 6);
