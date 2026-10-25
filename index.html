@@ -33,10 +33,10 @@
     .header-title-box h2 { font-size: 16px; font-weight: 700; color: var(--text-main); }
     .header-title-box p { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
 
-    .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+    .btn-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; }
     button {
-      padding: 12px 14px;
-      font-size: 14px;
+      padding: 12px 6px;
+      font-size: 13px;
       font-weight: 600;
       border-radius: 8px;
       border: none;
@@ -52,6 +52,8 @@
     .btn-export { background-color: var(--accent-color); color: #0f172a; }
     .btn-mode { background-color: #dc2626; color: white; border: 1px solid var(--border-color); }
     .btn-mode.indoor { background-color: #0284c7; color: white; }
+    .btn-calib { background-color: #6366f1; color: white; }
+    .btn-sleep { background-color: #475569; color: white; }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .status-badge {
@@ -75,15 +77,15 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 65vw;
+      width: 82vw;
       max-width: 480px;
       padding: 22px 10px;
       border: 4px solid var(--bright-red);
-      background-color: rgba(18, 24, 38, 0.94);
+      background-color: rgba(18, 24, 38, 0.95);
       color: var(--bright-red);
-      font-size: clamp(30px, 8vw, 56px);
+      font-size: clamp(24px, 6.5vw, 44px);
       font-weight: 900;
-      letter-spacing: 4px;
+      letter-spacing: 2px;
       text-align: center;
       border-radius: 16px;
       box-shadow: 0 0 35px rgba(255, 0, 51, 0.75), inset 0 0 20px rgba(255, 0, 51, 0.4);
@@ -146,16 +148,61 @@
     th { background: #0f172a; color: var(--text-dim); position: sticky; top: 0; }
     tr:nth-child(even) { background: rgba(255, 255, 255, 0.02); }
 
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(6px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 10000;
+    }
+    .modal-box {
+      background: #1e293b;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 24px 20px;
+      max-width: 440px;
+      width: 90%;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      text-align: center;
+    }
+    .modal-msg {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text-main);
+      margin-bottom: 20px;
+    }
+    .modal-btn-row {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+    }
+    .modal-btn-blue {
+      background-color: #2563eb;
+      color: white;
+      flex: 1;
+      padding: 10px 14px;
+    }
+    .modal-btn-gray {
+      background-color: #334155;
+      color: #cbd5e1;
+      flex: 1;
+      padding: 10px 14px;
+    }
+
     @media (max-width: 800px) {
       .card-3d { order: -1; }
       .canvas-wrapper { height: 260px; }
+      .btn-group { grid-template-columns: repeat(3, 1fr); }
     }
 
     @media (min-width: 801px) {
       body { padding: 20px; }
       header { flex-direction: row; justify-content: space-between; align-items: center; }
       .btn-group { display: flex; width: auto; }
-      .dashboard-grid { display: grid; grid-template-columns: 1fr 1.15fr; gap: 16px; }
+      .dashboard-grid { grid-template-columns: 1fr 1.15fr; gap: 16px; }
       .card-3d { order: unset; }
       .canvas-wrapper { height: 360px; }
       .metrics-container { gap: 12px; }
@@ -169,12 +216,50 @@
 
 <div id="screenAlert" class="screen-alert-overlay">ALERT</div>
 
+<!-- 1. 校正確認視窗 -->
+<div id="calibModal" class="modal-overlay" style="display: none;">
+  <div class="modal-box">
+    <div id="calibMsg" class="modal-msg">
+      在您按下確認鈕確定要校正，兩秒後會進入校正模式。在校正模式內請維持您的自然視線持續三秒鐘，以之為頭部角度基準。您確認嗎？
+    </div>
+    <div id="calibBtnRow" class="modal-btn-row">
+      <button class="modal-btn-blue" onclick="startCalibrationSequence()">確認</button>
+      <button class="modal-btn-gray" onclick="closeCalibModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 2. 休眠確認視窗 -->
+<div id="sleepConfirmModal" class="modal-overlay" style="display: none;">
+  <div class="modal-box">
+    <div class="modal-msg">
+      您確定讓要穿戴式裝置休眠？
+    </div>
+    <div class="modal-btn-row">
+      <button class="modal-btn-blue" onclick="executeSleepMode()">確認</button>
+      <button class="modal-btn-gray" onclick="closeSleepConfirmModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 3. 休眠後喚醒提示視窗 -->
+<div id="sleepWakeNoticeModal" class="modal-overlay" style="display: none;">
+  <div class="modal-box">
+    <div class="modal-msg">
+      休眠後若要喚醒穿戴式裝置，請在裝置上的Type-C USB孔接上電源，或是搖晃裝置持續3秒鐘，將系統喚醒。
+    </div>
+    <div class="modal-btn-row">
+      <button class="modal-btn-blue" style="max-width: 160px;" onclick="closeSleepWakeNoticeModal()">確認</button>
+    </div>
+  </div>
+</div>
+
 <div class="container">
   <header>
     <div class="header-title-box">
       <div>
         <h2>多應用情境穿戴式瞌睡警報系統</h2>
-        <p>XIAO nRF52840 Sense (MCU 端點直接推論架構)</p>
+        <p>XIAO nRF52840 Sense (研發動態觀測儀表)</p>
       </div>
       <div class="status-badge">
         <div id="statusDot" class="dot"></div>
@@ -185,11 +270,13 @@
       <button id="btnConnect" class="btn-start" onclick="connectBLE()">配對藍牙耳掛</button>
       <button id="btnDisconnect" class="btn-stop" onclick="disconnectBLE()" disabled>中斷連線</button>
       <button id="btnMode" class="btn-mode" onclick="toggleMode()">模式：行車 (警報音開)</button>
+      <button id="btnCalib" class="btn-calib" onclick="openCalibModal()" disabled>校正</button>
+      <button id="btnSleep" class="btn-sleep" onclick="openSleepConfirmModal()" disabled>休眠</button>
       <button id="btnExport" class="btn-export" onclick="exportCSV()">匯出數據 (CSV)</button>
     </div>
   </header>
 
-  <div id="alertBanner" class="alert-banner">⚠️ 警告：偵測到低頭瞌睡或姿態異常！</div>
+  <div id="alertBanner" class="alert-banner">⚠️ 警告：偵測到異常狀態！</div>
 
   <div class="dashboard-grid">
     <div class="card card-3d">
@@ -198,16 +285,29 @@
         <canvas id="glCanvas" width="600" height="400"></canvas>
       </div>
       <div style="margin-top: 8px; font-size: 11px; color: var(--text-dim); line-height: 1.4;">
-        <span style="color:#ff0000; font-weight:bold;">紅色長箭頭</span>：代表頭部空間指向向量。即時反映俯仰角與異常下墜[cite: 1, 4]。
+        <span style="color:#ff0000; font-weight:bold;">紅色長箭頭</span>：即時反映俯仰角 (Pitch)、側傾角 (Roll) 與偏擺角 (Yaw)。
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">MCU 邊緣解算姿態傾角 (Degrees)</div>
+      <div class="card-title">加速度計換算姿態傾角 (Degrees) <span id="calibStatusTag" style="color:#10b981; font-size:10px; margin-left:6px;"></span></div>
       <div class="metrics-container">
-        <div class="metric-box"><div class="metric-label">側傾角 (X)</div><div class="metric-value" id="valDegX">0.0°</div></div>
-        <div class="metric-box"><div class="metric-label">橫擺角 (Y)</div><div class="metric-value" id="valDegY">0.0°</div></div>
-        <div class="metric-box"><div class="metric-label">俯仰角 (Z-低頭)</div><div class="metric-value" id="valDegZ" style="color: #f87171;">0.0°</div></div>
+        <div class="metric-box"><div class="metric-label">換算側傾角 (Acc-X)</div><div class="metric-value" id="valDegX">0.0°</div></div>
+        <div class="metric-box"><div class="metric-label">換算橫擺角 (Acc-Y)</div><div class="metric-value" id="valDegY">0.0°</div></div>
+        <div class="metric-box"><div class="metric-label">換算俯仰角 (Acc-Z)</div><div class="metric-value" id="valDegZ" style="color: #f87171;">0.0°</div></div>
+      </div>
+
+      <!-- 開發階段專用：陀螺儀動態積分觀測儀表 -->
+      <div class="card-title" style="color:#a78bfa;">陀螺儀動態積分觀測 (Degrees)</div>
+      <div class="metrics-container" style="grid-template-columns: 1fr 1fr;">
+        <div class="metric-box" style="border: 1px solid rgba(167, 139, 250, 0.25);">
+          <div class="metric-label">X 偏角純積分值 (Gyro Int-X)</div>
+          <div class="metric-value" id="valGyroIntX" style="color:#c4b5fd;">0.0°</div>
+        </div>
+        <div class="metric-box" style="border: 1px solid rgba(56, 189, 248, 0.25);">
+          <div class="metric-label">Y 軸偏航角 (Yaw 轉頭)</div>
+          <div class="metric-value" id="valGyroYaw" style="color:#38bdf8;">0.0°</div>
+        </div>
       </div>
 
       <div class="card-title">三軸重力加速度 (Unit: g)</div>
@@ -224,9 +324,9 @@
             <tr>
               <th style="text-align: left;">時間戳</th>
               <th>Ax</th>
-              <th>Ay</th>
               <th>Az</th>
               <th>Pitch_Z</th>
+              <th>Yaw_Y</th>
               <th>狀態</th>
             </tr>
           </thead>
@@ -239,8 +339,8 @@
 
 <script>
   const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-  const UART_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // MCU 通知
-  const UART_RX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // 寫入 MCU
+  const UART_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; 
+  const UART_RX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; 
 
   let bleDevice = null;
   let txCharacteristic = null;
@@ -249,6 +349,7 @@
 
   let currentAx = 0, currentAy = 0, currentAz = 0;
   let angleX = 0, angleY = 0, angleZ = 0;
+  let currentGyroIntX = 0, currentGyroYaw = 0;
   let isAlertState = false;
 
   let isDrivingMode = true;
@@ -258,6 +359,11 @@
 
   let bleRxBuffer = "";
 
+  // 校正統計變數
+  let isCalibrating = false;
+  let calibSamples = [];
+  let calibOffsets = { ax: 0, ay: 0, az: 0, degX: 0, degY: 0, degZ: 0, gyroIntX: 0, gyroYaw: 0 };
+
   const canvas = document.getElementById("glCanvas");
   const ctx = canvas.getContext("2d");
 
@@ -265,12 +371,23 @@
     draw3DView(0, 0, 0);
   });
 
-  // 切換模式並透過 BLE 下發指令指揮 MCU
   async function toggleMode() {
     isDrivingMode = !isDrivingMode;
-    const btn = document.getElementById("btnMode");
-    const cmd = isDrivingMode ? "MODE:DRIVE" : "MODE:INDOOR";
+    updateModeUI();
 
+    if (rxCharacteristic) {
+      try {
+        const cmd = isDrivingMode ? "MODE:DRIVE" : "MODE:INDOOR";
+        const encoder = new TextEncoder();
+        await rxCharacteristic.writeValue(encoder.encode(cmd));
+      } catch (e) {
+        console.error("模式切換失敗:", e);
+      }
+    }
+  }
+
+  function updateModeUI() {
+    const btn = document.getElementById("btnMode");
     if (isDrivingMode) {
       btn.className = "btn-mode";
       btn.innerText = "模式：行車 (警報音開)";
@@ -278,21 +395,10 @@
       btn.className = "btn-mode indoor";
       btn.innerText = "模式：室內 (靜音)";
     }
-
-    // 發送給 MCU
-    if (rxCharacteristic) {
-      try {
-        const encoder = new TextEncoder();
-        await rxCharacteristic.writeValue(encoder.encode(cmd));
-        console.log("指令發送成功 -> MCU:", cmd);
-      } catch (e) {
-        console.error("發送指令失敗:", e);
-      }
-    }
   }
 
   function playAlertBeep() {
-    if (!isDrivingMode || isSoundPlaying) return;
+    if (isSoundPlaying) return;
     try {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -336,7 +442,7 @@
 
   async function connectBLE() {
     if (!navigator.bluetooth) {
-      alert("您的瀏覽器不支援 Web Bluetooth API，請使用 Android Chrome、電腦版 Chrome/Edge 或 iOS Bluefy 開啟！");
+      alert("您的手機瀏覽器不支援 Web Bluetooth API，請使用 Chrome for Android 或 iOS Bluefy 開啟！");
       return;
     }
 
@@ -364,10 +470,11 @@
 
       document.getElementById("btnConnect").disabled = true;
       document.getElementById("btnDisconnect").disabled = false;
+      document.getElementById("btnCalib").disabled = false;
+      document.getElementById("btnSleep").disabled = false;
       document.getElementById("statusDot").className = "dot active";
       document.getElementById("statusText").innerText = "已連線 (BLE)";
 
-      // 連線成功後同步目前模式給 MCU
       const cmd = isDrivingMode ? "MODE:DRIVE" : "MODE:INDOOR";
       const encoder = new TextEncoder();
       await rxCharacteristic.writeValue(encoder.encode(cmd));
@@ -395,14 +502,7 @@
   }
 
   function onDisconnected() {
-    document.getElementById("btnConnect").disabled = false;
-    document.getElementById("btnDisconnect").disabled = true;
-    document.getElementById("statusDot").className = "dot";
-    document.getElementById("statusText").innerText = "已中斷連線";
-    document.getElementById("alertBanner").className = "alert-banner";
-    hideCenterAlert();
-    bleRxBuffer = "";
-    rxCharacteristic = null;
+    resetDashboardState();
   }
 
   function disconnectBLE() {
@@ -411,10 +511,48 @@
     }
   }
 
-  function triggerCenterAlert() {
+  function resetDashboardState() {
+    document.getElementById("btnConnect").disabled = false;
+    document.getElementById("btnDisconnect").disabled = true;
+    document.getElementById("btnCalib").disabled = true;
+    document.getElementById("btnSleep").disabled = true;
+    document.getElementById("statusDot").className = "dot";
+    document.getElementById("statusText").innerText = "未連線";
+    document.getElementById("alertBanner").className = "alert-banner";
+    hideCenterAlert();
+
+    isDrivingMode = true;
+    updateModeUI();
+
+    bleRxBuffer = "";
+    rxCharacteristic = null;
+    txCharacteristic = null;
+
+    currentAx = 0; currentAy = 0; currentAz = 0;
+    angleX = 0; angleY = 0; angleZ = 0;
+    currentGyroIntX = 0; currentGyroYaw = 0;
+    isAlertState = false;
+
+    document.getElementById("valAx").innerText = "0.00";
+    document.getElementById("valAy").innerText = "0.00";
+    document.getElementById("valAz").innerText = "0.00";
+    document.getElementById("valDegX").innerText = "0.0°";
+    document.getElementById("valDegY").innerText = "0.0°";
+    document.getElementById("valDegZ").innerText = "0.0°";
+    document.getElementById("valGyroIntX").innerText = "0.0°";
+    document.getElementById("valGyroYaw").innerText = "0.0°";
+
+    draw3DView(0, 0, 0);
+  }
+
+  function triggerCenterAlert(text, shouldPlaySound) {
     const alertEl = document.getElementById("screenAlert");
+    alertEl.innerText = text || "ALERT";
     alertEl.classList.add("show");
-    playAlertBeep();
+
+    if (shouldPlaySound) {
+      playAlertBeep();
+    }
 
     if (alertHideTimeout) {
       clearTimeout(alertHideTimeout);
@@ -435,22 +573,205 @@
     }
   }
 
+  // 校正彈窗
+  function openCalibModal() {
+    document.getElementById("calibMsg").innerText = "在您按下確認鈕確定要校正，兩秒後會進入校正模式。在校正模式內請維持您的自然視線持續三秒鐘，以之為頭部角度基準。您確認嗎？";
+    document.getElementById("calibBtnRow").style.display = "flex";
+    document.getElementById("calibModal").style.display = "flex";
+  }
+
+  function closeCalibModal() {
+    document.getElementById("calibModal").style.display = "none";
+  }
+
+  function startCalibrationSequence() {
+    const msgEl = document.getElementById("calibMsg");
+    document.getElementById("calibBtnRow").style.display = "none";
+
+    let countdown = 2;
+    msgEl.innerText = `準備校正... ${countdown} 秒後開始，請維持自然平視！`;
+
+    const timer = setInterval(() => {
+      countdown--;
+      if (countdown > 0) {
+        msgEl.innerText = `準備校正... ${countdown} 秒後開始，請維持自然平視！`;
+      } else {
+        clearInterval(timer);
+        msgEl.innerText = "校正中... 請維持平視，持續收集三秒數據...";
+        calibSamples = [];
+        isCalibrating = true;
+
+        // 同步通知 MCU 重置積分器
+        if (rxCharacteristic) {
+          const encoder = new TextEncoder();
+          rxCharacteristic.writeValue(encoder.encode("CMD:CALIB"));
+        }
+
+        setTimeout(() => {
+          isCalibrating = false;
+          finishCalibration();
+        }, 3000);
+      }
+    }, 1000);
+  }
+
+  function computeTrimmedMedian(arr) {
+    if (arr.length === 0) return 0;
+    arr.sort((a, b) => a - b);
+    const trimCount = Math.floor(arr.length * 0.05);
+    const validArr = arr.slice(trimCount, arr.length - trimCount);
+    if (validArr.length === 0) return arr[Math.floor(arr.length / 2)];
+    const mid = Math.floor(validArr.length / 2);
+    if (validArr.length % 2 !== 0) {
+      return validArr[mid];
+    } else {
+      return (validArr[mid - 1] + validArr[mid]) / 2.0;
+    }
+  }
+
+  function finishCalibration() {
+    if (calibSamples.length >= 5) {
+      calibOffsets.ax = computeTrimmedMedian(calibSamples.map(s => s.ax));
+      calibOffsets.ay = computeTrimmedMedian(calibSamples.map(s => s.ay));
+      calibOffsets.az = computeTrimmedMedian(calibSamples.map(s => s.az));
+      calibOffsets.degX = computeTrimmedMedian(calibSamples.map(s => s.degX));
+      calibOffsets.degY = computeTrimmedMedian(calibSamples.map(s => s.degY));
+      calibOffsets.degZ = computeTrimmedMedian(calibSamples.map(s => s.degZ));
+      calibOffsets.gyroIntX = computeTrimmedMedian(calibSamples.map(s => s.gyroIntX));
+      calibOffsets.gyroYaw = computeTrimmedMedian(calibSamples.map(s => s.gyroYaw));
+
+      document.getElementById("calibStatusTag").innerText = "[基準已校正]";
+      document.getElementById("calibMsg").innerText = "校正完成！已將當前視角設為零點基準。";
+    } else {
+      document.getElementById("calibMsg").innerText = "校正數據不足，請確認連線穩定後重試。";
+    }
+
+    setTimeout(() => {
+      closeCalibModal();
+    }, 1200);
+  }
+
+  // 休眠彈窗
+  function openSleepConfirmModal() {
+    document.getElementById("sleepConfirmModal").style.display = "flex";
+  }
+
+  function closeSleepConfirmModal() {
+    document.getElementById("sleepConfirmModal").style.display = "none";
+  }
+
+  async function executeSleepMode() {
+    closeSleepConfirmModal();
+
+    if (rxCharacteristic) {
+      try {
+        const encoder = new TextEncoder();
+        await rxCharacteristic.writeValue(encoder.encode("CMD:SLEEP"));
+      } catch (e) {
+        console.warn("休眠指令發送錯誤:", e);
+      }
+    }
+
+    disconnectBLE();
+    resetDashboardState();
+
+    document.getElementById("sleepWakeNoticeModal").style.display = "flex";
+  }
+
+  function closeSleepWakeNoticeModal() {
+    document.getElementById("sleepWakeNoticeModal").style.display = "none";
+  }
+
+  // -------------------------------------------------------------
+  // 數據解析與雙模式警示核心判斷
+  // -------------------------------------------------------------
   function parseIMULine(line) {
-    const regex = /Acc\(g\)\s*\[X:\s*([+-]?\d+\.?\d*),\s*Y:\s*([+-]?\d+\.?\d*),\s*Z:\s*([+-]?\d+\.?\d*)\]\s*\|\s*Deg\s*\[X:\s*([+-]?\d+\.?\d*),\s*Y:\s*([+-]?\d+\.?\d*),\s*Z:\s*([+-]?\d+\.?\d*)\](?:\s*->\s*\[(.*?)\])?/;
+    // 支援擴充格式：Acc(g)[...] | Deg[...] | Gyro[...] -> [...]
+    const regex = /Acc\(g\)\s*\[X:\s*([+-]?\d+\.?\d*),\s*Y:\s*([+-]?\d+\.?\d*),\s*Z:\s*([+-]?\d+\.?\d*)\]\s*\|\s*Deg\s*\[X:\s*([+-]?\d+\.?\d*),\s*Y:\s*([+-]?\d+\.?\d*),\s*Z:\s*([+-]?\d+\.?\d*)\](?:\s*\|\s*Gyro\s*\[X:\s*([+-]?\d+\.?\d*),\s*Y:\s*([+-]?\d+\.?\d*)\])?(?:\s*->\s*\[(.*?)\])?/;
     const match = line.match(regex);
 
     if (match) {
-      currentAx = parseFloat(match[1]);
-      currentAy = parseFloat(match[2]);
-      currentAz = parseFloat(match[3]);
-      
-      angleX = parseFloat(match[4]);
-      angleY = parseFloat(match[5]);
-      angleZ = parseFloat(match[6]);
+      const rawAx = parseFloat(match[1]);
+      const rawAy = parseFloat(match[2]);
+      const rawAz = parseFloat(match[3]);
+      const rawDegX = parseFloat(match[4]);
+      const rawDegY = parseFloat(match[5]);
+      const rawDegZ = parseFloat(match[6]);
+      const rawGyroIntX = match[7] ? parseFloat(match[7]) : 0.0;
+      const rawGyroYaw = match[8] ? parseFloat(match[8]) : 0.0;
 
-      const alertTag = match[7] || "";
-      isAlertState = alertTag.includes("ALERT");
+      if (isCalibrating) {
+        calibSamples.push({
+          ax: rawAx, ay: rawAy, az: rawAz,
+          degX: rawDegX, degY: rawDegY, degZ: rawDegZ,
+          gyroIntX: rawGyroIntX, gyroYaw: rawGyroYaw
+        });
+      }
 
+      // 扣除校正值 (基準偏移值 Offset)
+      currentAx = rawAx - calibOffsets.ax;
+      currentAy = rawAy - calibOffsets.ay;
+      currentAz = rawAz - calibOffsets.az;
+
+      angleX = rawDegX - calibOffsets.degX;
+      angleY = rawDegY - calibOffsets.degY;
+      angleZ = rawDegZ - calibOffsets.degZ;
+
+      currentGyroIntX = rawGyroIntX - calibOffsets.gyroIntX;
+      currentGyroYaw = rawGyroYaw - calibOffsets.gyroYaw;
+
+      // -----------------------------------------------------------
+      // 警示原則判斷：
+      // 1. 【瞌睡動作】嚴格兩條件：(Az < -0.5g) 且 (Z偏角 < -1.0°)
+      //    -> 與俯仰限制角度完全無關！不論行車或室內模式都觸發！
+      //    -> 行車模式響鈴，室內模式警鈴靜音 (僅螢幕亮紅 ALERT)
+      // 2. 【行車模式專屬姿態警示】：
+      //    -> 俯仰超限：angleZ > 18.0° 或 angleZ < -18.0°
+      //    -> 轉頭分心：|Yaw| > 30.0°
+      // -----------------------------------------------------------
+      const DRIVE_HEAD_UP_DEG = 18.0;
+      const DRIVE_HEAD_DOWN_DEG = -18.0;
+      const DRIVE_HEAD_TURN_DEG = 30.0;
+      const DROP_PITCH_THRESHOLD = -1.0;
+      const DROP_ACCEL_THRESHOLD = -0.5;
+
+      // 核心瞌睡動作判斷 (兩條件皆成立)
+      const isDrowsyAction = (currentAz < DROP_ACCEL_THRESHOLD) && (angleZ < DROP_PITCH_THRESHOLD);
+
+      // 行車姿勢超限
+      const isPitchExceeded = (angleZ > DRIVE_HEAD_UP_DEG) || (angleZ < DRIVE_HEAD_DOWN_DEG);
+      const isTurning = Math.abs(currentGyroYaw) > DRIVE_HEAD_TURN_DEG;
+
+      let calculatedAlert = false;
+      let reason = "NORMAL";
+      let shouldPlayBeep = false;
+
+      if (isDrivingMode) {
+        if (isDrowsyAction) {
+          calculatedAlert = true;
+          reason = "瞌睡動作";
+          shouldPlayBeep = true;
+        } else if (isPitchExceeded) {
+          calculatedAlert = true;
+          reason = "俯仰超限";
+          shouldPlayBeep = true;
+        } else if (isTurning) {
+          calculatedAlert = true;
+          reason = "轉頭分心";
+          shouldPlayBeep = true;
+        }
+      } else {
+        // 室內模式：瞌睡動作同樣警示，但警鈴靜音！
+        if (isDrowsyAction) {
+          calculatedAlert = true;
+          reason = "瞌睡動作";
+          shouldPlayBeep = false; // 靜音
+        }
+      }
+
+      isAlertState = calculatedAlert;
+
+      // 更新儀表數值
       document.getElementById("valAx").innerText = (currentAx >= 0 ? "+" : "") + currentAx.toFixed(2);
       document.getElementById("valAy").innerText = (currentAy >= 0 ? "+" : "") + currentAy.toFixed(2);
       document.getElementById("valAz").innerText = (currentAz >= 0 ? "+" : "") + currentAz.toFixed(2);
@@ -459,19 +780,23 @@
       document.getElementById("valDegY").innerText = angleY.toFixed(1) + "°";
       document.getElementById("valDegZ").innerText = angleZ.toFixed(1) + "°";
 
+      document.getElementById("valGyroIntX").innerText = currentGyroIntX.toFixed(1) + "°";
+      document.getElementById("valGyroYaw").innerText = currentGyroYaw.toFixed(1) + "°";
+
       const banner = document.getElementById("alertBanner");
       const dot = document.getElementById("statusDot");
       if (isAlertState) {
+        banner.innerText = `⚠️ 警告：偵測到${reason}！${(!shouldPlayBeep && !isDrivingMode) ? ' (室內靜音模式)' : ''}`;
         banner.className = "alert-banner show";
         dot.className = "dot alert";
-        triggerCenterAlert();
+        triggerCenterAlert(reason, shouldPlayBeep);
       } else {
         banner.className = "alert-banner";
         dot.className = "dot active";
       }
 
-      draw3DView(angleX, angleZ, angleY);
-      collectSample(alertTag);
+      draw3DView(angleX, angleZ, currentGyroYaw);
+      collectSample(isAlertState ? reason : "NORMAL");
     }
   }
 
@@ -480,10 +805,10 @@
     const record = {
       time: timestamp,
       ax: currentAx,
-      ay: currentAy,
       az: currentAz,
-      pitchZ: angleZ.toFixed(2),
-      state: stateText || (isAlertState ? "ALERT" : "NORMAL")
+      pitchZ: angleZ.toFixed(1),
+      yawY: currentGyroYaw.toFixed(1),
+      state: stateText
     };
     recordedData.push(record);
 
@@ -492,9 +817,9 @@
     tr.innerHTML = `
       <td style="text-align:left;">${record.time}</td>
       <td>${record.ax.toFixed(2)}</td>
-      <td>${record.ay.toFixed(2)}</td>
       <td>${record.az.toFixed(2)}</td>
-      <td style="color:${isAlertState ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.pitchZ}°</td>
+      <td style="color:${Math.abs(record.pitchZ) > 18.0 ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.pitchZ}°</td>
+      <td style="color:${Math.abs(record.yawY) > 30.0 ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.yawY}°</td>
       <td style="color:${isAlertState ? '#ef4444' : '#10b981'}; font-weight:bold;">${record.state}</td>
     `;
     tbody.insertBefore(tr, tbody.firstChild);
@@ -520,7 +845,7 @@
     const axisLen = 110;
     const axes = [
       { name: "X (側向)", x: axisLen, y: 0, z: 0, color: "#64748b" },
-      { name: "Y (垂直)", x: 0, y: axisLen, z: 0, color: "#38bdf8" },
+      { name: "Y (偏擺/轉頭)", x: 0, y: axisLen, z: 0, color: "#38bdf8" },
       { name: "Z (朝前/俯仰)", x: 0, y: 0, z: axisLen, color: "#64748b" }
     ];
 
@@ -541,8 +866,9 @@
     const L = 50; 
     let radZ = (pitchDegZ * Math.PI) / 180;
     let radX = (pitchDegX * Math.PI) / 180;
+    let radY = (rollDegY * Math.PI) / 180;
 
-    let vx = L * Math.sin(radX);
+    let vx = L * (Math.sin(radX) + Math.sin(radY) * 0.7);
     let vy = L * Math.sin(radZ);
     let vz = L * Math.cos(radZ) * Math.cos(radX);
 
@@ -580,16 +906,16 @@
     }
 
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
-    csvContent += "Time,Acc_X(g),Acc_Y(g),Acc_Z(g),Pitch_Z(deg),State\n";
+    csvContent += "Time,Acc_X(g),Acc_Z(g),Pitch_Z(deg),Yaw_Y(deg),State\n";
 
     recordedData.forEach(row => {
-      csvContent += `${row.time},${row.ax},${row.ay},${row.az},${row.pitchZ},${row.state}\n`;
+      csvContent += `${row.time},${row.ax},${row.az},${row.pitchZ},${row.yawY},${row.state}\n`;
     });
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `EarHook_BLE_Telemetry_${Date.now()}.csv`);
+    link.setAttribute("download", `EarHook_Mobile_Telemetry_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
