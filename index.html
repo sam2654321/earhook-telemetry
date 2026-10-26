@@ -255,7 +255,7 @@
     <div class="header-title-box">
       <div>
         <h2>多應用情境穿戴式瞌睡警報系統</h2>
-        <p>XIAO nRF52840 Sense (實測極限修正版)</p>
+        <p>XIAO nRF52840 Sense (YAW 20度衰減制重構版)</p>
       </div>
       <div class="status-badge">
         <div id="statusDot" class="dot"></div>
@@ -281,7 +281,7 @@
         <canvas id="glCanvas" width="600" height="400"></canvas>
       </div>
       <div style="margin-top: 8px; font-size: 11px; color: var(--text-dim); line-height: 1.4;">
-        <span style="color:#ff0000; font-weight:bold;">紅色長箭頭</span>：即時反映俯仰角 (Pitch)、側傾角 (Roll) 與轉頭差值 (ΔYaw)。
+        <span style="color:#ff0000; font-weight:bold;">紅色長箭頭</span>：即時反映俯仰角 (Pitch)、側傾角 (Roll) 與偏航角 (Yaw)。
       </div>
     </div>
 
@@ -290,7 +290,7 @@
       <div class="metrics-container">
         <div class="metric-box"><div class="metric-label">俯仰角 (Pitch: 抬頭+, 低頭-)</div><div class="metric-value" id="valPitch" style="color: #f87171;">0.0°</div></div>
         <div class="metric-box"><div class="metric-label">側傾角 (Roll - X)</div><div class="metric-value" id="valRoll">0.0°</div></div>
-        <div class="metric-box"><div class="metric-label">轉頭突變 (ΔYaw)</div><div class="metric-value" id="valYaw" style="color:#38bdf8;">0.0°</div></div>
+        <div class="metric-box"><div class="metric-label">轉頭偏航角 (Yaw)</div><div class="metric-value" id="valYaw" style="color:#38bdf8;">0.0°</div></div>
       </div>
 
       <div class="card-title">三軸重力加速度 (Unit: g)</div>
@@ -309,7 +309,7 @@
               <th>Ax</th>
               <th>Az</th>
               <th>Pitch_Z</th>
-              <th>ΔYaw</th>
+              <th>Yaw_Y</th>
               <th>狀態</th>
             </tr>
           </thead>
@@ -593,7 +593,7 @@
     }, 1000);
   }
 
-  function computeTrimmedMedian(arr) {
+  function computeTrimMedian(arr) {
     if (arr.length === 0) return 0;
     arr.sort((a, b) => a - b);
     const trimCount = Math.floor(arr.length * 0.05);
@@ -609,12 +609,12 @@
 
   function finishCalibration() {
     if (calibSamples.length >= 5) {
-      calibOffsets.ax = computeTrimmedMedian(calibSamples.map(s => s.ax));
-      calibOffsets.ay = computeTrimmedMedian(calibSamples.map(s => s.ay));
-      calibOffsets.az = computeTrimmedMedian(calibSamples.map(s => s.az));
-      calibOffsets.pitch = computeTrimmedMedian(calibSamples.map(s => s.pitch));
-      calibOffsets.roll = computeTrimmedMedian(calibSamples.map(s => s.roll));
-      calibOffsets.yaw = 0.0;
+      calibOffsets.ax = computeTrimMedian(calibSamples.map(s => s.ax));
+      calibOffsets.ay = computeTrimMedian(calibSamples.map(s => s.ay));
+      calibOffsets.az = computeTrimMedian(calibSamples.map(s => s.az));
+      calibOffsets.pitch = computeTrimMedian(calibSamples.map(s => s.pitch));
+      calibOffsets.roll = computeTrimMedian(calibSamples.map(s => s.roll));
+      calibOffsets.yaw = computeTrimMedian(calibSamples.map(s => s.yaw));
 
       document.getElementById("calibStatusTag").innerText = "[基準已校正]";
       document.getElementById("calibMsg").innerText = "校正完成！已將當前視角設為零點基準。";
@@ -627,6 +627,7 @@
     }, 1200);
   }
 
+  // 休眠彈窗
   function openSleepConfirmModal() {
     document.getElementById("sleepConfirmModal").style.display = "flex";
   }
@@ -670,12 +671,12 @@
       const rawAz = parseFloat(match[3]);
       const rawPitch = parseFloat(match[4]);
       const rawRoll = parseFloat(match[5]);
-      const rawDiffYaw = parseFloat(match[6]);
+      const rawYaw = parseFloat(match[6]);
 
       if (isCalibrating) {
         calibSamples.push({
           ax: rawAx, ay: rawAy, az: rawAz,
-          pitch: rawPitch, roll: rawRoll, yaw: 0.0
+          pitch: rawPitch, roll: rawRoll, yaw: rawYaw
         });
       }
 
@@ -683,12 +684,9 @@
       currentAy = rawAy - calibOffsets.ay;
       currentAz = rawAz - calibOffsets.az;
 
-      // 減去校正值 (平視為 0°，抬頭為正 +，低頭為負 -)
       currentPitch = rawPitch - calibOffsets.pitch;
       currentRoll = rawRoll - calibOffsets.roll;
-
-      // 轉頭偏角現值相對於 0.5 秒移動平均之差值
-      currentYaw = rawDiffYaw;
+      currentYaw = rawYaw - calibOffsets.yaw; // 連續偏航角
 
       // -----------------------------------------------------------
       // 警示原則判斷：
@@ -696,19 +694,18 @@
       //    -> 不論行車或室內模式都觸發！
       //    -> 行車模式響鈴，室內模式警鈴靜音
       // 2. 【行車模式姿態警示】：
-      //    -> 俯仰超限：抬頭 > 18.0° 或 低頭 < -18.0°
-      //    -> 轉頭分心：|currentYaw| > 4.0° (門檻卡 4 度)
+      //    -> 俯仰超限：|currentPitch| > 18.0°
+      //    -> 轉頭分心：|currentYaw| > 20.0° (轉頭卡正負 20 度)
       // -----------------------------------------------------------
       const DRIVE_HEAD_LIMIT_DEG = 18.0;
-      const YAW_DIFF_LIMIT = 4.0; // 卡 4 度範圍
+      const DRIVE_HEAD_TURN_DEG  = 20.0; // 卡正負 20 度
       const DROP_ACCEL_THRESHOLD = -0.5;
       const DROP_PITCH_THRESHOLD = -1.0;
 
-      // 嚴格兩條件並存
       const isDrowsyAction = (currentAz < DROP_ACCEL_THRESHOLD) && (currentPitch < DROP_PITCH_THRESHOLD);
-      const isPitchExceeded = (currentPitch > DRIVE_HEAD_LIMIT_DEG) || (currentPitch < -DRIVE_HEAD_LIMIT_DEG);
-      const isTurnRight = (currentYaw > YAW_DIFF_LIMIT);   // > +4.0°
-      const isTurnLeft  = (currentYaw < -YAW_DIFF_LIMIT);  // < -4.0°
+      const isPitchExceeded = Math.abs(currentPitch) > DRIVE_HEAD_LIMIT_DEG;
+      const isTurnRight = (currentYaw > DRIVE_HEAD_TURN_DEG);
+      const isTurnLeft  = (currentYaw < -DRIVE_HEAD_TURN_DEG);
 
       let calculatedAlert = false;
       let reason = "NORMAL";
@@ -775,7 +772,7 @@
       ax: currentAx,
       az: currentAz,
       pitchZ: currentPitch.toFixed(1),
-      diffYaw: currentYaw.toFixed(1),
+      yawY: currentYaw.toFixed(1),
       state: stateText
     };
     recordedData.push(record);
@@ -787,7 +784,7 @@
       <td>${record.ax.toFixed(2)}</td>
       <td>${record.az.toFixed(2)}</td>
       <td style="color:${Math.abs(record.pitchZ) > 18.0 ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.pitchZ}°</td>
-      <td style="color:${Math.abs(record.diffYaw) > 4.0 ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.diffYaw}°</td>
+      <td style="color:${Math.abs(record.yawY) > 20.0 ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.yawY}°</td>
       <td style="color:${isAlertState ? '#ef4444' : '#10b981'}; font-weight:bold;">${record.state}</td>
     `;
     tbody.insertBefore(tr, tbody.firstChild);
@@ -836,7 +833,6 @@
     let radX = (rollX * Math.PI) / 180;
     let radY = (yawY * Math.PI) / 180;
 
-    // 低頭 (pitchZ < 0) 時箭頭向下傾斜
     let vx = L * (Math.sin(radX) + Math.sin(radY) * 0.7);
     let vy = L * Math.sin(radZ);
     let vz = L * Math.cos(radZ) * Math.cos(radX);
@@ -875,10 +871,10 @@
     }
 
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
-    csvContent += "Time,Acc_X(g),Acc_Z(g),Pitch_Z(deg),Diff_Yaw(deg),State\n";
+    csvContent += "Time,Acc_X(g),Acc_Z(g),Pitch_Z(deg),Yaw_Y(deg),State\n";
 
     recordedData.forEach(row => {
-      csvContent += `${row.time},${row.ax},${row.az},${row.pitchZ},${row.diffYaw},${row.state}\n`;
+      csvContent += `${row.time},${row.ax},${row.az},${row.pitchZ},${row.yawY},${row.state}\n`;
     });
 
     const encodedUri = encodeURI(csvContent);
