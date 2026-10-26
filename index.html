@@ -255,7 +255,7 @@
     <div class="header-title-box">
       <div>
         <h2>多應用情境穿戴式瞌睡警報系統</h2>
-        <p>XIAO nRF52840 Sense (實測優化版)</p>
+        <p>XIAO nRF52840 Sense (實測極限修正版)</p>
       </div>
       <div class="status-badge">
         <div id="statusDot" class="dot"></div>
@@ -288,7 +288,7 @@
     <div class="card">
       <div class="card-title">真實姿態傾角 (Degrees: [-90°, +90°]) <span id="calibStatusTag" style="color:#10b981; font-size:10px; margin-left:6px;"></span></div>
       <div class="metrics-container">
-        <div class="metric-box"><div class="metric-label">俯仰角 (Pitch - Z)</div><div class="metric-value" id="valPitch" style="color: #f87171;">0.0°</div></div>
+        <div class="metric-box"><div class="metric-label">俯仰角 (Pitch: 抬頭+, 低頭-)</div><div class="metric-value" id="valPitch" style="color: #f87171;">0.0°</div></div>
         <div class="metric-box"><div class="metric-label">側傾角 (Roll - X)</div><div class="metric-value" id="valRoll">0.0°</div></div>
         <div class="metric-box"><div class="metric-label">轉頭突變 (ΔYaw)</div><div class="metric-value" id="valYaw" style="color:#38bdf8;">0.0°</div></div>
       </div>
@@ -552,6 +552,7 @@
     }
   }
 
+  // 校正彈窗
   function openCalibModal() {
     document.getElementById("calibMsg").innerText = "在您按下確認鈕確定要校正，兩秒後會進入校正模式。在校正模式內請維持您的自然視線持續三秒鐘，以之為頭部角度基準。您確認嗎？";
     document.getElementById("calibBtnRow").style.display = "flex";
@@ -682,14 +683,9 @@
       currentAy = rawAy - calibOffsets.ay;
       currentAz = rawAz - calibOffsets.az;
 
-      // 減去校正值，並確保角度平滑在 [-90, +90] 內
+      // 減去校正值 (平視為 0°，抬頭為正 +，低頭為負 -)
       currentPitch = rawPitch - calibOffsets.pitch;
-      if (currentPitch > 180.0) currentPitch -= 360.0;
-      if (currentPitch < -180.0) currentPitch += 360.0;
-
       currentRoll = rawRoll - calibOffsets.roll;
-      if (currentRoll > 180.0) currentRoll -= 360.0;
-      if (currentRoll < -180.0) currentRoll += 360.0;
 
       // 轉頭偏角現值相對於 0.5 秒移動平均之差值
       currentYaw = rawDiffYaw;
@@ -700,7 +696,7 @@
       //    -> 不論行車或室內模式都觸發！
       //    -> 行車模式響鈴，室內模式警鈴靜音
       // 2. 【行車模式姿態警示】：
-      //    -> 俯仰超限：|currentPitch| > 18.0°
+      //    -> 俯仰超限：抬頭 > 18.0° 或 低頭 < -18.0°
       //    -> 轉頭分心：|currentYaw| > 4.0° (門檻卡 4 度)
       // -----------------------------------------------------------
       const DRIVE_HEAD_LIMIT_DEG = 18.0;
@@ -708,8 +704,9 @@
       const DROP_ACCEL_THRESHOLD = -0.5;
       const DROP_PITCH_THRESHOLD = -1.0;
 
+      // 嚴格兩條件並存
       const isDrowsyAction = (currentAz < DROP_ACCEL_THRESHOLD) && (currentPitch < DROP_PITCH_THRESHOLD);
-      const isPitchExceeded = Math.abs(currentPitch) > DRIVE_HEAD_LIMIT_DEG;
+      const isPitchExceeded = (currentPitch > DRIVE_HEAD_LIMIT_DEG) || (currentPitch < -DRIVE_HEAD_LIMIT_DEG);
       const isTurnRight = (currentYaw > YAW_DIFF_LIMIT);   // > +4.0°
       const isTurnLeft  = (currentYaw < -YAW_DIFF_LIMIT);  // < -4.0°
 
@@ -724,7 +721,7 @@
           shouldPlayBeep = true;
         } else if (isPitchExceeded) {
           calculatedAlert = true;
-          reason = "俯仰超限";
+          reason = currentPitch > 0 ? "抬頭超限" : "低頭超限";
           shouldPlayBeep = true;
         } else if (isTurnRight) {
           calculatedAlert = true;
@@ -750,8 +747,8 @@
       document.getElementById("valAy").innerText = (currentAy >= 0 ? "+" : "") + currentAy.toFixed(2);
       document.getElementById("valAz").innerText = (currentAz >= 0 ? "+" : "") + currentAz.toFixed(2);
 
-      document.getElementById("valPitch").innerText = currentPitch.toFixed(1) + "°";
-      document.getElementById("valRoll").innerText = currentRoll.toFixed(1) + "°";
+      document.getElementById("valPitch").innerText = (currentPitch >= 0 ? "+" : "") + currentPitch.toFixed(1) + "°";
+      document.getElementById("valRoll").innerText = (currentRoll >= 0 ? "+" : "") + currentRoll.toFixed(1) + "°";
       document.getElementById("valYaw").innerText = (currentYaw >= 0 ? "+" : "") + currentYaw.toFixed(1) + "°";
 
       const banner = document.getElementById("alertBanner");
@@ -839,8 +836,9 @@
     let radX = (rollX * Math.PI) / 180;
     let radY = (yawY * Math.PI) / 180;
 
+    // 低頭 (pitchZ < 0) 時箭頭向下傾斜
     let vx = L * (Math.sin(radX) + Math.sin(radY) * 0.7);
-    let vy = -L * Math.sin(radZ);
+    let vy = L * Math.sin(radZ);
     let vz = L * Math.cos(radZ) * Math.cos(radX);
 
     const headTarget = project3D(vx, vy, vz);
