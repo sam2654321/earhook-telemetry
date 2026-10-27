@@ -255,7 +255,7 @@
     <div class="header-title-box">
       <div>
         <h2>多應用情境穿戴式瞌睡警報系統</h2>
-        <p>XIAO nRF52840 Sense (YAW 20度衰減制重構版)</p>
+        <p>XIAO nRF52840 Sense (YAW連續積分重構版)</p>
       </div>
       <div class="status-badge">
         <div id="statusDot" class="dot"></div>
@@ -552,7 +552,6 @@
     }
   }
 
-  // 校正彈窗
   function openCalibModal() {
     document.getElementById("calibMsg").innerText = "在您按下確認鈕確定要校正，兩秒後會進入校正模式。在校正模式內請維持您的自然視線持續三秒鐘，以之為頭部角度基準。您確認嗎？";
     document.getElementById("calibBtnRow").style.display = "flex";
@@ -627,7 +626,6 @@
     }, 1200);
   }
 
-  // 休眠彈窗
   function openSleepConfirmModal() {
     document.getElementById("sleepConfirmModal").style.display = "flex";
   }
@@ -684,26 +682,28 @@
       currentAy = rawAy - calibOffsets.ay;
       currentAz = rawAz - calibOffsets.az;
 
+      // 減去校正值 (平視為 0°，抬頭為正 +，低頭為負 -)
       currentPitch = rawPitch - calibOffsets.pitch;
       currentRoll = rawRoll - calibOffsets.roll;
-      currentYaw = rawYaw - calibOffsets.yaw; // 連續偏航角
+      currentYaw = rawYaw - calibOffsets.yaw; 
 
       // -----------------------------------------------------------
       // 警示原則判斷：
-      // 1. 【瞌睡動作】嚴格兩條件：(currentAz < -0.5g) 且 (currentPitch < -1.0°)
+      // 1. 【瞌睡動作】嚴格兩條件：(currentAz < -0.2g) 且 (currentPitch < -1.0°)
       //    -> 不論行車或室內模式都觸發！
       //    -> 行車模式響鈴，室內模式警鈴靜音
       // 2. 【行車模式姿態警示】：
-      //    -> 俯仰超限：|currentPitch| > 18.0°
-      //    -> 轉頭分心：|currentYaw| > 20.0° (轉頭卡正負 20 度)
+      //    -> 俯仰超限：抬頭 > +25.0° 或 低頭 < -30.0°
+      //    -> 轉頭分心：|currentYaw| > 20.0° (轉頭門檻卡正負 20 度)
       // -----------------------------------------------------------
-      const DRIVE_HEAD_LIMIT_DEG = 18.0;
-      const DRIVE_HEAD_TURN_DEG  = 20.0; // 卡正負 20 度
-      const DROP_ACCEL_THRESHOLD = -0.5;
-      const DROP_PITCH_THRESHOLD = -1.0;
+      const DRIVE_HEAD_UP_LIMIT_DEG   =  25.0; // 抬頭 +25 度
+      const DRIVE_HEAD_DOWN_LIMIT_DEG = -30.0; // 低頭 -30 度
+      const DRIVE_HEAD_TURN_DEG       =  20.0; // 卡正負 20 度
+      const DROP_ACCEL_THRESHOLD      = -0.20; // 門檻 -0.2g
+      const DROP_PITCH_THRESHOLD      = -1.0;
 
       const isDrowsyAction = (currentAz < DROP_ACCEL_THRESHOLD) && (currentPitch < DROP_PITCH_THRESHOLD);
-      const isPitchExceeded = Math.abs(currentPitch) > DRIVE_HEAD_LIMIT_DEG;
+      const isPitchExceeded = (currentPitch > DRIVE_HEAD_UP_LIMIT_DEG) || (currentPitch < DRIVE_HEAD_DOWN_LIMIT_DEG);
       const isTurnRight = (currentYaw > DRIVE_HEAD_TURN_DEG);
       const isTurnLeft  = (currentYaw < -DRIVE_HEAD_TURN_DEG);
 
@@ -783,7 +783,7 @@
       <td style="text-align:left;">${record.time}</td>
       <td>${record.ax.toFixed(2)}</td>
       <td>${record.az.toFixed(2)}</td>
-      <td style="color:${Math.abs(record.pitchZ) > 18.0 ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.pitchZ}°</td>
+      <td style="color:${(record.pitchZ > 25.0 || record.pitchZ < -30.0) ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.pitchZ}°</td>
       <td style="color:${Math.abs(record.yawY) > 20.0 ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.yawY}°</td>
       <td style="color:${isAlertState ? '#ef4444' : '#10b981'}; font-weight:bold;">${record.state}</td>
     `;
