@@ -12,6 +12,7 @@
       --accent-red: #ef4444;
       --bright-red: #ff0033;
       --accent-green: #10b981;
+      --accent-yellow: #f59e0b;
       --text-main: #f8fafc;
       --text-dim: #94a3b8;
       --border-color: #334155;
@@ -69,6 +70,7 @@
     }
     .dot { width: 10px; height: 10px; border-radius: 50%; background-color: #64748b; }
     .dot.active { background-color: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
+    .dot.standby { background-color: var(--accent-yellow); box-shadow: 0 0 8px var(--accent-yellow); }
     .dot.alert { background-color: var(--accent-red); box-shadow: 0 0 10px var(--accent-red); animation: blink 0.8s infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
@@ -112,6 +114,19 @@
       font-size: 13px;
     }
     .alert-banner.show { display: block; }
+
+    .standby-banner {
+      display: none;
+      padding: 10px;
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid var(--accent-yellow);
+      color: #fde68a;
+      border-radius: 8px;
+      text-align: center;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .standby-banner.show { display: block; }
 
     .dashboard-grid { display: flex; flex-direction: column; gap: 14px; }
     .card { background: var(--card-bg); border-radius: 12px; padding: 14px; border: 1px solid var(--border-color); }
@@ -255,11 +270,11 @@
     <div class="header-title-box">
       <div>
         <h2>多應用情境穿戴式瞌睡警報系統</h2>
-        <p>XIAO nRF52840 Sense (純陀螺儀積分重構版)</p>
+        <p>XIAO nRF52840 Sense (智慧人因防誤報狀態機)</p>
       </div>
       <div class="status-badge">
         <div id="statusDot" class="dot"></div>
-        <span id="statusText">未連線</span>
+        <span id="statusText">未連線 (狀態:2)</span>
       </div>
     </div>
     <div class="btn-group">
@@ -272,6 +287,10 @@
     </div>
   </header>
 
+  <!-- 待校正提示橫幅 (狀態 1) -->
+  <div id="standbyBanner" class="standby-banner">ℹ️ 藍牙已就緒：請調整坐姿平視前方，並點擊上方「校正」按鈕以啟動守護。</div>
+
+  <!-- 異常示警橫幅 (狀態 0 專用) -->
   <div id="alertBanner" class="alert-banner">⚠️ 警告：偵測到異常狀態！</div>
 
   <div class="dashboard-grid">
@@ -286,7 +305,7 @@
     </div>
 
     <div class="card">
-      <div class="card-title">真實姿態傾角 (Degrees: [-90°, +90°]) <span id="calibStatusTag" style="color:#10b981; font-size:10px; margin-left:6px;"></span></div>
+      <div class="card-title">真實姿態傾角 (Degrees: [-90°, +90°]) <span id="calibStatusTag" style="color:#f59e0b; font-size:11px; margin-left:6px;">[待校正]</span></div>
       <div class="metrics-container">
         <div class="metric-box"><div class="metric-label">俯仰角 (Pitch: 抬頭+, 低頭-)</div><div class="metric-value" id="valPitch" style="color: #f87171;">0.0°</div></div>
         <div class="metric-box"><div class="metric-label">側傾角 (Roll - X)</div><div class="metric-value" id="valRoll">0.0°</div></div>
@@ -324,6 +343,14 @@
   const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
   const UART_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; 
   const UART_RX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; 
+
+  // =============================================================
+  // 人因安全狀態機：
+  // 2: 網頁載入初始 (未連線，警報抑制)
+  // 1: 藍牙連線成功 (等待使用者坐定校正，警報抑制)
+  // 0: 校正完成 (系統就緒，所有警報機制正式啟用)
+  // =============================================================
+  let sysState = 2;
 
   let bleDevice = null;
   let txCharacteristic = null;
@@ -417,7 +444,7 @@
         isSoundPlaying = false;
       };
     } catch (e) {
-      console.warn("音訊受阻:", e);
+      console.warn("音訊播放受阻:", e);
       isSoundPlaying = false;
     }
   }
@@ -450,12 +477,21 @@
       await txCharacteristic.startNotifications();
       txCharacteristic.addEventListener('characteristicvaluechanged', handleBLEData);
 
+      // -----------------------------------------------------------
+      // 藍牙連線成功：狀態機立刻切換為 1 (等待使用者坐定，警報抑制)
+      // -----------------------------------------------------------
+      sysState = 1;
+
       document.getElementById("btnConnect").disabled = true;
       document.getElementById("btnDisconnect").disabled = false;
       document.getElementById("btnCalib").disabled = false;
       document.getElementById("btnSleep").disabled = false;
-      document.getElementById("statusDot").className = "dot active";
-      document.getElementById("statusText").innerText = "已連線 (BLE)";
+
+      document.getElementById("statusDot").className = "dot standby";
+      document.getElementById("statusText").innerText = "已連線 (待校正)";
+      document.getElementById("calibStatusTag").innerText = "[待校正 - 警報已抑制]";
+      document.getElementById("calibStatusTag").style.color = "#f59e0b";
+      document.getElementById("standbyBanner").className = "standby-banner show";
 
       const cmd = isDrivingMode ? "MODE:DRIVE" : "MODE:INDOOR";
       const encoder = new TextEncoder();
@@ -464,7 +500,7 @@
     } catch (err) {
       console.error("BLE 連線失敗:", err);
       alert("藍牙配對取消或連線失敗：" + err.message);
-      document.getElementById("statusText").innerText = "未連線";
+      resetDashboardState();
     }
   }
 
@@ -494,12 +530,22 @@
   }
 
   function resetDashboardState() {
+    // -----------------------------------------------------------
+    // 斷線或重置：狀態機回到 2 (未連線，警報關閉)
+    // -----------------------------------------------------------
+    sysState = 2;
+
     document.getElementById("btnConnect").disabled = false;
     document.getElementById("btnDisconnect").disabled = true;
     document.getElementById("btnCalib").disabled = true;
     document.getElementById("btnSleep").disabled = true;
+
     document.getElementById("statusDot").className = "dot";
-    document.getElementById("statusText").innerText = "未連線";
+    document.getElementById("statusText").innerText = "未連線 (狀態:2)";
+    document.getElementById("calibStatusTag").innerText = "[未連線]";
+    document.getElementById("calibStatusTag").style.color = "#94a3b8";
+
+    document.getElementById("standbyBanner").className = "standby-banner";
     document.getElementById("alertBanner").className = "alert-banner";
     hideCenterAlert();
 
@@ -552,6 +598,7 @@
     }
   }
 
+  // 校正彈窗
   function openCalibModal() {
     document.getElementById("calibMsg").innerText = "在您按下確認鈕確定要校正，兩秒後會進入校正模式。在校正模式內請維持您的自然視線持續三秒鐘，以之為頭部角度基準。您確認嗎？";
     document.getElementById("calibBtnRow").style.display = "flex";
@@ -615,8 +662,18 @@
       calibOffsets.roll = computeTrimMedian(calibSamples.map(s => s.roll));
       calibOffsets.yaw = computeTrimMedian(calibSamples.map(s => s.yaw));
 
-      document.getElementById("calibStatusTag").innerText = "[基準已校正]";
-      document.getElementById("calibMsg").innerText = "校正完成！已將當前視角設為零點基準。";
+      // -----------------------------------------------------------
+      // 校正完成：狀態機抹除歸零 (sysState = 0)，警報機制正式啟用！
+      // -----------------------------------------------------------
+      sysState = 0;
+
+      document.getElementById("statusDot").className = "dot active";
+      document.getElementById("statusText").innerText = "已連線 (守護中)";
+      document.getElementById("calibStatusTag").innerText = "[已校正基準 - 警報已啟動]";
+      document.getElementById("calibStatusTag").style.color = "#10b981";
+      document.getElementById("standbyBanner").className = "standby-banner"; // 隱藏等待提示
+
+      document.getElementById("calibMsg").innerText = "校正完成！守護系統已正式就緒啟動。";
     } else {
       document.getElementById("calibMsg").innerText = "校正數據不足，請確認連線穩定後重試。";
     }
@@ -657,7 +714,7 @@
   }
 
   // -------------------------------------------------------------
-  // 數據解析與雙模式警示核心判斷
+  // 數據解析與雙模式警示核心判斷 (綁定狀態機 sysState === 0)
   // -------------------------------------------------------------
   function parseIMULine(line) {
     const regex = /Acc\(g\)\s*\[X:\s*([+-]?\d+\.?\d*),\s*Y:\s*([+-]?\d+\.?\d*),\s*Z:\s*([+-]?\d+\.?\d*)\]\s*\|\s*Angle\s*\[P:\s*([+-]?\d+\.?\d*),\s*R:\s*([+-]?\d+\.?\d*),\s*Y:\s*([+-]?\d+\.?\d*)\](?:\s*->\s*\[(.*?)\])?/;
@@ -667,9 +724,9 @@
       const rawAx = parseFloat(match[1]);
       const rawAy = parseFloat(match[2]);
       const rawAz = parseFloat(match[3]);
-      const rawPitch = parseFloat(match[4]); // 來自 MCU 積分之 Pitch 角度
+      const rawPitch = parseFloat(match[4]);
       const rawRoll = parseFloat(match[5]);
-      const rawYaw = parseFloat(match[6]);   // 來自 MCU 積分之 Yaw 角度
+      const rawYaw = parseFloat(match[6]);
       const tag = match[7] || "NORMAL";
 
       if (isCalibrating) {
@@ -679,6 +736,7 @@
         });
       }
 
+      // 扣除校正偏移量
       currentAx = rawAx - calibOffsets.ax;
       currentAy = rawAy - calibOffsets.ay;
       currentAz = rawAz - calibOffsets.az;
@@ -689,55 +747,59 @@
 
       // -----------------------------------------------------------
       // 警示原則判定：
-      // 1. 【瞌睡動作】嚴格兩條件：(currentAz < -0.05g 且 tag 為 DROWSY)
-      //    -> 不論行車或室內模式都觸發！
-      //    -> 行車模式響鈴，室內模式警鈴靜音
-      // 2. 【行車模式姿態警示】：
-      //    -> 俯仰超限：currentPitch > 25.0° 或 currentPitch < -30.0°
-      //    -> 轉頭分心：|currentYaw| > 20.0°
+      // 只有在【狀態機為 0】(使用者已坐定且校正完成) 期間，警報才准許觸發！
+      // 若狀態機為 1 (剛連線待校正) 或 2 (未連線)，所有警報強制歸零靜音！
       // -----------------------------------------------------------
       const DRIVE_HEAD_UP_LIMIT_DEG   =  25.0; 
       const DRIVE_HEAD_DOWN_LIMIT_DEG = -30.0; 
       const DRIVE_HEAD_TURN_DEG       =  20.0; 
 
-      const isDrowsyAction = (tag === "DROWSY");
-      const isPitchExceeded = (currentPitch > DRIVE_HEAD_UP_LIMIT_DEG) || (currentPitch < DRIVE_HEAD_DOWN_LIMIT_DEG);
-      const isTurnRight = (currentYaw > DRIVE_HEAD_TURN_DEG);
-      const isTurnLeft  = (currentYaw < -DRIVE_HEAD_TURN_DEG);
-
       let calculatedAlert = false;
       let reason = "NORMAL";
       let shouldPlayBeep = false;
 
-      if (isDrivingMode) {
-        if (isDrowsyAction) {
-          calculatedAlert = true;
-          reason = "瞌睡動作";
-          shouldPlayBeep = true;
-        } else if (isPitchExceeded) {
-          calculatedAlert = true;
-          reason = currentPitch > 0 ? "抬頭超限" : "低頭超限";
-          shouldPlayBeep = true;
-        } else if (isTurnRight) {
-          calculatedAlert = true;
-          reason = "右偏分心";
-          shouldPlayBeep = true;
-        } else if (isTurnLeft) {
-          calculatedAlert = true;
-          reason = "左偏分心";
-          shouldPlayBeep = true;
+      if (sysState === 0) {
+        const isDrowsyAction = (tag === "DROWSY");
+        const isPitchExceeded = (currentPitch > DRIVE_HEAD_UP_LIMIT_DEG) || (currentPitch < DRIVE_HEAD_DOWN_LIMIT_DEG);
+        const isTurnRight = (currentYaw > DRIVE_HEAD_TURN_DEG);
+        const isTurnLeft  = (currentYaw < -DRIVE_HEAD_TURN_DEG);
+
+        if (isDrivingMode) {
+          if (isDrowsyAction) {
+            calculatedAlert = true;
+            reason = "瞌睡動作";
+            shouldPlayBeep = true;
+          } else if (isPitchExceeded) {
+            calculatedAlert = true;
+            reason = currentPitch > 0 ? "抬頭超限" : "低頭超限";
+            shouldPlayBeep = true;
+          } else if (isTurnRight) {
+            calculatedAlert = true;
+            reason = "右偏分心";
+            shouldPlayBeep = true;
+          } else if (isTurnLeft) {
+            calculatedAlert = true;
+            reason = "左偏分心";
+            shouldPlayBeep = true;
+          }
+        } else {
+          // 室內模式：瞌睡動作同樣警示，但警鈴靜音
+          if (isDrowsyAction) {
+            calculatedAlert = true;
+            reason = "瞌睡動作";
+            shouldPlayBeep = false;
+          }
         }
       } else {
-        // 室內模式：瞌睡動作同樣警示，但警鈴靜音！
-        if (isDrowsyAction) {
-          calculatedAlert = true;
-          reason = "瞌睡動作";
-          shouldPlayBeep = false;
-        }
+        // 狀態為 1 或 2：警報強制抑制
+        calculatedAlert = false;
+        reason = (sysState === 1) ? "待校正中" : "未連線";
+        shouldPlayBeep = false;
       }
 
       isAlertState = calculatedAlert;
 
+      // 更新即時儀表數值 (數據永遠流暢更新，方便使用者觀察當前姿態)
       document.getElementById("valAx").innerText = (currentAx >= 0 ? "+" : "") + currentAx.toFixed(2);
       document.getElementById("valAy").innerText = (currentAy >= 0 ? "+" : "") + currentAy.toFixed(2);
       document.getElementById("valAz").innerText = (currentAz >= 0 ? "+" : "") + currentAz.toFixed(2);
@@ -748,6 +810,7 @@
 
       const banner = document.getElementById("alertBanner");
       const dot = document.getElementById("statusDot");
+
       if (isAlertState) {
         banner.innerText = `⚠️ 警告：偵測到${reason}！${(!shouldPlayBeep && !isDrivingMode) ? ' (室內靜音模式)' : ''}`;
         banner.className = "alert-banner show";
@@ -755,11 +818,17 @@
         triggerCenterAlert(reason, shouldPlayBeep);
       } else {
         banner.className = "alert-banner";
-        dot.className = "dot active";
+        if (sysState === 0) {
+          dot.className = "dot active";
+        } else if (sysState === 1) {
+          dot.className = "dot standby";
+        } else {
+          dot.className = "dot";
+        }
       }
 
       draw3DView(currentRoll, currentPitch, currentYaw);
-      collectSample(isAlertState ? reason : "NORMAL");
+      collectSample(isAlertState ? reason : (sysState === 0 ? "NORMAL" : "STANDBY"));
     }
   }
 
@@ -781,9 +850,9 @@
       <td style="text-align:left;">${record.time}</td>
       <td>${record.ax.toFixed(2)}</td>
       <td>${record.az.toFixed(2)}</td>
-      <td style="color:${(record.pitchZ > 25.0 || record.pitchZ < -30.0) ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.pitchZ}°</td>
-      <td style="color:${Math.abs(record.yawY) > 20.0 ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.yawY}°</td>
-      <td style="color:${isAlertState ? '#ef4444' : '#10b981'}; font-weight:bold;">${record.state}</td>
+      <td style="color:${(record.pitchZ > 25.0 || record.pitchZ < -30.0) && sysState === 0 ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.pitchZ}°</td>
+      <td style="color:${Math.abs(record.yawY) > 20.0 && sysState === 0 ? '#ef4444' : '#38bdf8'}; font-weight:600;">${record.yawY}°</td>
+      <td style="color:${isAlertState ? '#ef4444' : (sysState === 0 ? '#10b981' : '#f59e0b')}; font-weight:bold;">${record.state}</td>
     `;
     tbody.insertBefore(tr, tbody.firstChild);
     while (tbody.children.length > 15) {
@@ -831,7 +900,6 @@
     let radX = (rollX * Math.PI) / 180;
     let radY = (yawY * Math.PI) / 180;
 
-    // 低頭時箭頭向下前傾
     let vx = L * (Math.sin(radX) + Math.sin(radY) * 0.7);
     let vy = L * Math.sin(radZ);
     let vz = L * Math.cos(radZ) * Math.cos(radX);
