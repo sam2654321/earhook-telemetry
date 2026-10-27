@@ -270,7 +270,7 @@
     <div class="header-title-box">
       <div>
         <h2>多應用情境穿戴式瞌睡警報系統</h2>
-        <p>XIAO nRF52840 Sense (智慧人因防誤報狀態機)</p>
+        <p>XIAO nRF52840 Sense (雙端同步狀態機)</p>
       </div>
       <div class="status-badge">
         <div id="statusDot" class="dot"></div>
@@ -287,10 +287,7 @@
     </div>
   </header>
 
-  <!-- 待校正提示橫幅 (狀態 1) -->
   <div id="standbyBanner" class="standby-banner">ℹ️ 藍牙已就緒：請調整坐姿平視前方，並點擊上方「校正」按鈕以啟動守護。</div>
-
-  <!-- 異常示警橫幅 (狀態 0 專用) -->
   <div id="alertBanner" class="alert-banner">⚠️ 警告：偵測到異常狀態！</div>
 
   <div class="dashboard-grid">
@@ -344,12 +341,7 @@
   const UART_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; 
   const UART_RX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; 
 
-  // =============================================================
-  // 人因安全狀態機：
-  // 2: 網頁載入初始 (未連線，警報抑制)
-  // 1: 藍牙連線成功 (等待使用者坐定校正，警報抑制)
-  // 0: 校正完成 (系統就緒，所有警報機制正式啟用)
-  // =============================================================
+  // 狀態機：2=初始/未連線/休眠, 1=剛連線待校正, 0=校正就緒正式守護
   let sysState = 2;
 
   let bleDevice = null;
@@ -449,6 +441,17 @@
     }
   }
 
+  async function sendBLECommand(cmd) {
+    if (rxCharacteristic) {
+      try {
+        const encoder = new TextEncoder();
+        await rxCharacteristic.writeValue(encoder.encode(cmd));
+      } catch (e) {
+        console.warn("BLE 指令發送異常:", e);
+      }
+    }
+  }
+
   async function connectBLE() {
     if (!navigator.bluetooth) {
       alert("您的手機瀏覽器不支援 Web Bluetooth API，請使用 Chrome for Android 或 iOS Bluefy 開啟！");
@@ -477,10 +480,9 @@
       await txCharacteristic.startNotifications();
       txCharacteristic.addEventListener('characteristicvaluechanged', handleBLEData);
 
-      // -----------------------------------------------------------
-      // 藍牙連線成功：狀態機立刻切換為 1 (等待使用者坐定，警報抑制)
-      // -----------------------------------------------------------
+      // 連線成功：手機端設為 1，並通知 MCU 同步設為狀態 1 (待校正防誤報)
       sysState = 1;
+      await sendBLECommand("STATE:1");
 
       document.getElementById("btnConnect").disabled = true;
       document.getElementById("btnDisconnect").disabled = false;
@@ -493,9 +495,8 @@
       document.getElementById("calibStatusTag").style.color = "#f59e0b";
       document.getElementById("standbyBanner").className = "standby-banner show";
 
-      const cmd = isDrivingMode ? "MODE:DRIVE" : "MODE:INDOOR";
-      const encoder = new TextEncoder();
-      await rxCharacteristic.writeValue(encoder.encode(cmd));
+      const modeCmd = isDrivingMode ? "MODE:DRIVE" : "MODE:INDOOR";
+      await sendBLECommand(modeCmd);
 
     } catch (err) {
       console.error("BLE 連線失敗:", err);
@@ -523,17 +524,15 @@
     resetDashboardState();
   }
 
-  function disconnectBLE() {
+  async function disconnectBLE() {
     if (bleDevice && bleDevice.gatt.connected) {
+      await sendBLECommand("STATE:2");
       bleDevice.gatt.disconnect();
     }
   }
 
   function resetDashboardState() {
-    // -----------------------------------------------------------
-    // 斷線或重置：狀態機回到 2 (未連線，警報關閉)
-    // -----------------------------------------------------------
-    sysState = 2;
+    sysState = 2; // 回歸狀態 2
 
     document.getElementById("btnConnect").disabled = false;
     document.getElementById("btnDisconnect").disabled = true;
@@ -598,7 +597,6 @@
     }
   }
 
-  // 校正彈窗
   function openCalibModal() {
     document.getElementById("calibMsg").innerText = "在您按下確認鈕確定要校正，兩秒後會進入校正模式。在校正模式內請維持您的自然視線持續三秒鐘，以之為頭部角度基準。您確認嗎？";
     document.getElementById("calibBtnRow").style.display = "flex";
@@ -616,7 +614,7 @@
     let countdown = 2;
     msgEl.innerText = `準備校正... ${countdown} 秒後開始，請維持自然平視！`;
 
-    const timer = setInterval(() => {
+    const timer = setInterval(async () => {
       countdown--;
       if (countdown > 0) {
         msgEl.innerText = `準備校正... ${countdown} 秒後開始，請維持自然平視！`;
@@ -626,14 +624,11 @@
         calibSamples = [];
         isCalibrating = true;
 
-        if (rxCharacteristic) {
-          const encoder = new TextEncoder();
-          rxCharacteristic.writeValue(encoder.encode("CMD:CALIB"));
-        }
+        await sendBLECommand("CMD:CALIB");
 
-        setTimeout(() => {
+        setTimeout(async () => {
           isCalibrating = false;
-          finishCalibration();
+          await finishCalibration();
         }, 3000);
       }
     }, 1000);
@@ -653,7 +648,7 @@
     }
   }
 
-  function finishCalibration() {
+  async function finishCalibration() {
     if (calibSamples.length >= 5) {
       calibOffsets.ax = computeTrimMedian(calibSamples.map(s => s.ax));
       calibOffsets.ay = computeTrimMedian(calibSamples.map(s => s.ay));
@@ -662,16 +657,15 @@
       calibOffsets.roll = computeTrimMedian(calibSamples.map(s => s.roll));
       calibOffsets.yaw = computeTrimMedian(calibSamples.map(s => s.yaw));
 
-      // -----------------------------------------------------------
-      // 校正完成：狀態機抹除歸零 (sysState = 0)，警報機制正式啟用！
-      // -----------------------------------------------------------
+      // 校正完成：手機端狀態歸零，並同步指令通知 MCU 狀態歸零正式啟動守護
       sysState = 0;
+      await sendBLECommand("STATE:0");
 
       document.getElementById("statusDot").className = "dot active";
       document.getElementById("statusText").innerText = "已連線 (守護中)";
       document.getElementById("calibStatusTag").innerText = "[已校正基準 - 警報已啟動]";
       document.getElementById("calibStatusTag").style.color = "#10b981";
-      document.getElementById("standbyBanner").className = "standby-banner"; // 隱藏等待提示
+      document.getElementById("standbyBanner").className = "standby-banner";
 
       document.getElementById("calibMsg").innerText = "校正完成！守護系統已正式就緒啟動。";
     } else {
@@ -693,15 +687,8 @@
 
   async function executeSleepMode() {
     closeSleepConfirmModal();
-
-    if (rxCharacteristic) {
-      try {
-        const encoder = new TextEncoder();
-        await rxCharacteristic.writeValue(encoder.encode("CMD:SLEEP"));
-      } catch (e) {
-        console.warn("休眠指令發送錯誤:", e);
-      }
-    }
+    await sendBLECommand("STATE:2");
+    await sendBLECommand("CMD:SLEEP");
 
     disconnectBLE();
     resetDashboardState();
@@ -714,7 +701,7 @@
   }
 
   // -------------------------------------------------------------
-  // 數據解析與雙模式警示核心判斷 (綁定狀態機 sysState === 0)
+  // 數據解析與雙端同步狀態判定
   // -------------------------------------------------------------
   function parseIMULine(line) {
     const regex = /Acc\(g\)\s*\[X:\s*([+-]?\d+\.?\d*),\s*Y:\s*([+-]?\d+\.?\d*),\s*Z:\s*([+-]?\d+\.?\d*)\]\s*\|\s*Angle\s*\[P:\s*([+-]?\d+\.?\d*),\s*R:\s*([+-]?\d+\.?\d*),\s*Y:\s*([+-]?\d+\.?\d*)\](?:\s*->\s*\[(.*?)\])?/;
@@ -736,7 +723,6 @@
         });
       }
 
-      // 扣除校正偏移量
       currentAx = rawAx - calibOffsets.ax;
       currentAy = rawAy - calibOffsets.ay;
       currentAz = rawAz - calibOffsets.az;
@@ -745,11 +731,7 @@
       currentRoll = rawRoll - calibOffsets.roll;
       currentYaw = rawYaw - calibOffsets.yaw; 
 
-      // -----------------------------------------------------------
-      // 警示原則判定：
-      // 只有在【狀態機為 0】(使用者已坐定且校正完成) 期間，警報才准許觸發！
-      // 若狀態機為 1 (剛連線待校正) 或 2 (未連線)，所有警報強制歸零靜音！
-      // -----------------------------------------------------------
+      // 只有在 sysState === 0 時才准許發出警報
       const DRIVE_HEAD_UP_LIMIT_DEG   =  25.0; 
       const DRIVE_HEAD_DOWN_LIMIT_DEG = -30.0; 
       const DRIVE_HEAD_TURN_DEG       =  20.0; 
@@ -783,7 +765,6 @@
             shouldPlayBeep = true;
           }
         } else {
-          // 室內模式：瞌睡動作同樣警示，但警鈴靜音
           if (isDrowsyAction) {
             calculatedAlert = true;
             reason = "瞌睡動作";
@@ -791,7 +772,6 @@
           }
         }
       } else {
-        // 狀態為 1 或 2：警報強制抑制
         calculatedAlert = false;
         reason = (sysState === 1) ? "待校正中" : "未連線";
         shouldPlayBeep = false;
@@ -799,7 +779,6 @@
 
       isAlertState = calculatedAlert;
 
-      // 更新即時儀表數值 (數據永遠流暢更新，方便使用者觀察當前姿態)
       document.getElementById("valAx").innerText = (currentAx >= 0 ? "+" : "") + currentAx.toFixed(2);
       document.getElementById("valAy").innerText = (currentAy >= 0 ? "+" : "") + currentAy.toFixed(2);
       document.getElementById("valAz").innerText = (currentAz >= 0 ? "+" : "") + currentAz.toFixed(2);
@@ -818,13 +797,9 @@
         triggerCenterAlert(reason, shouldPlayBeep);
       } else {
         banner.className = "alert-banner";
-        if (sysState === 0) {
-          dot.className = "dot active";
-        } else if (sysState === 1) {
-          dot.className = "dot standby";
-        } else {
-          dot.className = "dot";
-        }
+        if (sysState === 0) dot.className = "dot active";
+        else if (sysState === 1) dot.className = "dot standby";
+        else dot.className = "dot";
       }
 
       draw3DView(currentRoll, currentPitch, currentYaw);
