@@ -255,7 +255,7 @@
     <div class="header-title-box">
       <div>
         <h2>多應用情境穿戴式瞌睡警報系統</h2>
-        <p>XIAO nRF52840 Sense (YAW連續積分重構版)</p>
+        <p>XIAO nRF52840 Sense (純陀螺儀積分重構版)</p>
       </div>
       <div class="status-badge">
         <div id="statusDot" class="dot"></div>
@@ -667,9 +667,10 @@
       const rawAx = parseFloat(match[1]);
       const rawAy = parseFloat(match[2]);
       const rawAz = parseFloat(match[3]);
-      const rawPitch = parseFloat(match[4]);
+      const rawPitch = parseFloat(match[4]); // 來自 MCU 積分之 Pitch 角度
       const rawRoll = parseFloat(match[5]);
-      const rawYaw = parseFloat(match[6]);
+      const rawYaw = parseFloat(match[6]);   // 來自 MCU 積分之 Yaw 角度
+      const tag = match[7] || "NORMAL";
 
       if (isCalibrating) {
         calibSamples.push({
@@ -682,27 +683,24 @@
       currentAy = rawAy - calibOffsets.ay;
       currentAz = rawAz - calibOffsets.az;
 
-      // 減去校正值 (平視為 0°，抬頭為正 +，低頭為負 -)
       currentPitch = rawPitch - calibOffsets.pitch;
       currentRoll = rawRoll - calibOffsets.roll;
       currentYaw = rawYaw - calibOffsets.yaw; 
 
       // -----------------------------------------------------------
-      // 警示原則判斷：
-      // 1. 【瞌睡動作】嚴格兩條件：(currentAz < -0.2g) 且 (currentPitch < -1.0°)
+      // 警示原則判定：
+      // 1. 【瞌睡動作】嚴格兩條件：(currentAz < -0.05g 且 tag 為 DROWSY)
       //    -> 不論行車或室內模式都觸發！
       //    -> 行車模式響鈴，室內模式警鈴靜音
       // 2. 【行車模式姿態警示】：
-      //    -> 俯仰超限：抬頭 > +25.0° 或 低頭 < -30.0°
-      //    -> 轉頭分心：|currentYaw| > 20.0° (轉頭門檻卡正負 20 度)
+      //    -> 俯仰超限：currentPitch > 25.0° 或 currentPitch < -30.0°
+      //    -> 轉頭分心：|currentYaw| > 20.0°
       // -----------------------------------------------------------
-      const DRIVE_HEAD_UP_LIMIT_DEG   =  25.0; // 抬頭 +25 度
-      const DRIVE_HEAD_DOWN_LIMIT_DEG = -30.0; // 低頭 -30 度
-      const DRIVE_HEAD_TURN_DEG       =  20.0; // 卡正負 20 度
-      const DROP_ACCEL_THRESHOLD      = -0.20; // 門檻 -0.2g
-      const DROP_PITCH_THRESHOLD      = -1.0;
+      const DRIVE_HEAD_UP_LIMIT_DEG   =  25.0; 
+      const DRIVE_HEAD_DOWN_LIMIT_DEG = -30.0; 
+      const DRIVE_HEAD_TURN_DEG       =  20.0; 
 
-      const isDrowsyAction = (currentAz < DROP_ACCEL_THRESHOLD) && (currentPitch < DROP_PITCH_THRESHOLD);
+      const isDrowsyAction = (tag === "DROWSY");
       const isPitchExceeded = (currentPitch > DRIVE_HEAD_UP_LIMIT_DEG) || (currentPitch < DRIVE_HEAD_DOWN_LIMIT_DEG);
       const isTurnRight = (currentYaw > DRIVE_HEAD_TURN_DEG);
       const isTurnLeft  = (currentYaw < -DRIVE_HEAD_TURN_DEG);
@@ -833,6 +831,7 @@
     let radX = (rollX * Math.PI) / 180;
     let radY = (yawY * Math.PI) / 180;
 
+    // 低頭時箭頭向下前傾
     let vx = L * (Math.sin(radX) + Math.sin(radY) * 0.7);
     let vy = L * Math.sin(radZ);
     let vz = L * Math.cos(radZ) * Math.cos(radX);
